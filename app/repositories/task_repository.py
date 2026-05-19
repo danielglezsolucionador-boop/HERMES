@@ -73,19 +73,24 @@ class TaskRepository:
         self,
         limit: int = 20,
         offset: int = 0,
+        status: str | None = None,
     ) -> tuple[list[Task], int]:
         """
         Retorna (tasks, total).
         Aplica paginación con limit/offset.
         """
         try:
+            base_q = select(Task)
+            if status:
+                base_q = base_q.where(Task.status == status)
+
             count_result = await self.session.execute(
-                select(func.count()).select_from(Task)
+                select(func.count()).select_from(base_q.subquery())
             )
             total = count_result.scalar_one()
 
             rows_result = await self.session.execute(
-                select(Task)
+                base_q
                 .order_by(Task.created_at.desc())
                 .limit(limit)
                 .offset(offset)
