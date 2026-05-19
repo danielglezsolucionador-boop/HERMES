@@ -7,6 +7,7 @@ from app.api import api_router
 from app.core.config import settings
 from app.core.logging import logger
 from app.db.engine import engine
+from app.telegram.polling import start_polling, stop_polling
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -20,7 +21,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.info("  database : connected")
     except Exception as e:
         logger.warning(f"  database : disconnected - {e}")
+    import asyncio
+    asyncio.ensure_future(start_polling())
+    logger.info("  telegram : polling started")
     yield
+    await stop_polling()
     logger.info("HERMES shutting down - goodbye.")
 
 def create_app() -> FastAPI:

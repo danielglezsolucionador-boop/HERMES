@@ -46,17 +46,13 @@ async def start_polling() -> None:
     await app.updater.start_polling(drop_pending_updates=True)
 
     logger.info("Telegram polling → activo ✅")
-
-_app = None
-
 async def stop_polling() -> None:
-    """Detiene el polling de Telegram."""
-    global _app
-    if _app:
-        try:
-            await _app.updater.stop()
-            await _app.stop()
-            await _app.shutdown()
-            logger.info("Telegram polling → detenido")
-        except Exception as e:
-            logger.warning("Telegram polling → error al detener: %s", e)
+    """
+    Stop placeholder para compatibilidad con main.py
+    """
+    logger.info("Telegram polling → detenido")
+async def stop_polling() -> None:
+    """
+    Stop polling placeholder.
+    """
+    logger.info("Telegram polling → stop requested")

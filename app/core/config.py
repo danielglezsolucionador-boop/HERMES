@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     DATABASE_URL: str = 'postgresql+asyncpg://user:pass@localhost/hermes'
 
     # Logging
+        # Telegram
+    TELEGRAM_BOT_TOKEN: str = ''
+    TELEGRAM_CHAT_ID: int = 0
     LOG_LEVEL: Literal['DEBUG', 'INFO', 'WARNING', 'ERROR'] = 'INFO'
     LOG_FORMAT: Literal['text', 'json'] = 'text'
 
