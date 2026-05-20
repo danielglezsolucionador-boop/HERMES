@@ -8,6 +8,7 @@ from app.api import api_router
 from app.core.config import settings
 from app.core.logging import logger
 from app.db.engine import engine
+from app.db.init import initialize_database
 from app.integrations.claude_client import validate_startup
 from app.telegram.polling import start_polling, stop_polling
 
@@ -36,7 +37,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             await conn.execute(text("SELECT 1"))
         logger.info("  database : connected")
     except Exception as e:
-        logger.warning(f"  database : disconnected - {e}")
+        logger.warning(f"  database : unavailable - {e}")
+    else:
+        await initialize_database()
     validate_startup()
     polling_task = asyncio.create_task(start_polling())
     polling_task.add_done_callback(_log_background_task_error)
