@@ -173,6 +173,7 @@ class AIResponseOrchestrator:
                 model=result.get("model"),
                 provider_ms=result.get("provider_ms", 0),
                 context_build_ms=result.get("context_build_ms", 0),
+                error=result.get("error_detail") or result.get("error"),
             )
         except Exception as exc:
             logger.warning("orchestrator: metrics update skipped error=%s", exc)

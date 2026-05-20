@@ -15,6 +15,7 @@ from sqlalchemy import func, or_, select
 from app.db.engine import AsyncSessionLocal
 from app.models.task import Task
 from app.schemas.task import TaskStatus
+from app.services.operational_health import build_operational_health
 from app.services.runtime_status import runtime_status
 
 logger = logging.getLogger(__name__)
@@ -41,6 +42,16 @@ def classify_operational_query(query: str) -> str | None:
 
     if any(term in text for term in ["riesgo", "riesgos"]):
         return "risks"
+    if "telegram" in text and "estable" in text:
+        return "telegram_health"
+    if any(term in text for term in ["ia estable", "ai estable", "ai provider"]):
+        return "ai_health"
+    if "runtime" in text and "estable" in text:
+        return "runtime_health"
+    if any(term in text for term in ["como estamos", "como esta hermes"]):
+        return "health"
+    if any(term in text for term in ["hay problemas", "problemas", "que esta fallando", "esta fallando"]):
+        return "issues"
     if any(term in text for term in ["fallaron", "fallidas", "fallida", "failed"]):
         return "failed"
     if any(
@@ -87,10 +98,22 @@ async def build_operational_response(route: str) -> str:
 
     if route == "failed":
         return _format_failed_summary(snapshot)
+    if route in {"health", "issues", "ai_health", "telegram_health", "runtime_health"}:
+        health = await _load_health(snapshot["counts"])
+        if route == "issues":
+            return _format_issue_summary(snapshot, health)
+        if route == "ai_health":
+            return _format_component_health("IA", "ai", health)
+        if route == "telegram_health":
+            return _format_component_health("Telegram", "telegram", health)
+        if route == "runtime_health":
+            return _format_component_health("Runtime", "runtime", health)
+        return _format_health_summary(snapshot, health)
     if route == "delayed":
         return _format_delayed_summary(snapshot)
     if route == "risks":
-        return _format_risk_summary(snapshot)
+        health = await _load_health(snapshot["counts"])
+        return _format_risk_summary(snapshot, health)
     if route == "runtime":
         return _format_runtime_summary(snapshot)
     return _format_operational_summary(snapshot)
@@ -98,6 +121,11 @@ async def build_operational_response(route: str) -> str:
 
 async def load_operational_snapshot() -> dict:
     return await _load_snapshot()
+
+
+async def _load_health(counts: dict) -> dict:
+    async with AsyncSessionLocal() as session:
+        return await build_operational_health(session, counts)
 
 
 async def _load_snapshot() -> dict:
@@ -265,11 +293,83 @@ def _format_delayed_summary(snapshot: dict) -> str:
     return "\n".join(lines)
 
 
-def _format_risk_summary(snapshot: dict) -> str:
+def _format_risk_summary(snapshot: dict, health: dict | None = None) -> str:
     lines = ["Riesgos operacionales", _runtime_line(snapshot)]
-    lines.extend(_section("Riesgos", snapshot["risks"]))
+    if health:
+        risk_lines = [
+            f"{risk['severity']} {risk['source']}: {risk['message']}"
+            for risk in health.get("risks", [])
+        ]
+        lines.extend(_section("Riesgos runtime", risk_lines))
+    lines.extend(_section("Riesgos tasks", snapshot["risks"]))
     lines.extend(_section("Prioridades", snapshot["priorities"]))
     lines.extend(_section("Incidentes reales", snapshot["incidents"]))
+    return "\n".join(lines)
+
+
+def _format_health_summary(snapshot: dict, health: dict) -> str:
+    checks = health.get("checks", {})
+    lines = [
+        "Salud operacional",
+        f"Estado general: {health.get('status')}",
+        _runtime_line(snapshot),
+        (
+            f"DB: {checks.get('database', {}).get('status')} "
+            f"({checks.get('database', {}).get('latency_ms')}ms)"
+        ),
+        (
+            f"IA: {checks.get('ai', {}).get('status')} | "
+            f"provider {checks.get('ai', {}).get('provider') or '-'} | "
+            f"modelo {checks.get('ai', {}).get('last_model') or '-'}"
+        ),
+        (
+            f"Telegram: {checks.get('telegram', {}).get('status')} "
+            f"({checks.get('telegram', {}).get('latency_ms')}ms)"
+        ),
+    ]
+    risk_lines = [
+        f"{risk['severity']} {risk['source']}: {risk['message']}"
+        for risk in health.get("risks", [])
+    ]
+    lines.extend(_section("Riesgos", risk_lines))
+    lines.extend(_section("Prioridades", snapshot["priorities"]))
+    return "\n".join(lines)
+
+
+def _format_issue_summary(snapshot: dict, health: dict) -> str:
+    lines = [
+        "Problemas operacionales",
+        f"Estado general: {health.get('status')}",
+    ]
+    risk_lines = [
+        f"{risk['severity']} {risk['source']}: {risk['message']}"
+        for risk in health.get("risks", [])
+    ]
+    lines.extend(_section("Detectado", risk_lines))
+    lines.extend(_section("Incidentes reales", snapshot["incidents"]))
+    return "\n".join(lines)
+
+
+def _format_component_health(label: str, key: str, health: dict) -> str:
+    check = health.get("checks", {}).get(key, {})
+    lines = [
+        f"{label} estable",
+        f"Estado: {check.get('status')}",
+    ]
+    for field in [
+        "connected",
+        "configured",
+        "provider",
+        "last_model",
+        "last_request_at",
+        "last_message_at",
+        "avg_duration_ms",
+        "latency_ms",
+        "last_error",
+        "runner_status",
+    ]:
+        if field in check:
+            lines.append(f"{field}: {check.get(field)}")
     return "\n".join(lines)
 
 

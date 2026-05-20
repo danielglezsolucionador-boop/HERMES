@@ -61,6 +61,11 @@ def test_classify_operational_queries():
     assert operational_summary.classify_operational_query("que tareas fallaron") == "failed"
     assert operational_summary.classify_operational_query("que esta atrasado") == "delayed"
     assert operational_summary.classify_operational_query("que riesgos tenemos") == "risks"
+    assert operational_summary.classify_operational_query("como estamos?") == "health"
+    assert operational_summary.classify_operational_query("hay problemas?") == "issues"
+    assert operational_summary.classify_operational_query("runtime estable?") == "runtime_health"
+    assert operational_summary.classify_operational_query("telegram estable?") == "telegram_health"
+    assert operational_summary.classify_operational_query("IA estable?") == "ai_health"
     assert operational_summary.classify_operational_query("hola hermes") is None
 
 

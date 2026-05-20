@@ -76,7 +76,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         response = "AI provider unavailable"
 
     sent = await send_message(response, chat_id=chat_id)
-    runtime_status.mark_telegram_message_processed()
+    runtime_status.mark_telegram_message(
+        success=sent,
+        error=None if sent else "send_message returned False",
+    )
     if sent:
         await _save_conversation_message("hermes", response)
 

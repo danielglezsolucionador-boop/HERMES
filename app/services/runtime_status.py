@@ -25,7 +25,13 @@ class RuntimeStatus:
         self.total_ai_context_build_ms = 0
         self.last_ai_provider: str | None = None
         self.last_ai_model: str | None = None
+        self.last_ai_error: str | None = None
+        self.last_ai_request_at: datetime | None = None
         self.telegram_messages_processed = 0
+        self.telegram_messages_total = 0
+        self.telegram_messages_failed = 0
+        self.telegram_last_message_at: datetime | None = None
+        self.telegram_last_error: str | None = None
 
     def mark_started(self) -> None:
         self.runner_started_at = datetime.now(timezone.utc)
@@ -61,16 +67,20 @@ class RuntimeStatus:
         model: str | None = None,
         provider_ms: int = 0,
         context_build_ms: int = 0,
+        error: str | None = None,
     ) -> None:
         safe_duration = max(0, int(duration_ms or 0))
         safe_provider_ms = max(0, int(provider_ms or 0))
         safe_context_ms = max(0, int(context_build_ms or 0))
 
+        self.last_ai_request_at = datetime.now(timezone.utc)
         self.total_ai_requests += 1
         if success:
             self.ai_success_requests += 1
+            self.last_ai_error = None
         else:
             self.ai_failed_requests += 1
+            self.last_ai_error = error or "unknown_ai_error"
 
         self.total_ai_duration_ms += safe_duration
         self.total_ai_provider_duration_ms += safe_provider_ms
@@ -79,7 +89,21 @@ class RuntimeStatus:
         self.last_ai_model = model
 
     def mark_telegram_message_processed(self) -> None:
+        self.mark_telegram_message(success=True)
+
+    def mark_telegram_message(
+        self,
+        success: bool,
+        error: str | None = None,
+    ) -> None:
+        self.telegram_messages_total += 1
         self.telegram_messages_processed += 1
+        self.telegram_last_message_at = datetime.now(timezone.utc)
+        if success:
+            self.telegram_last_error = None
+            return
+        self.telegram_messages_failed += 1
+        self.telegram_last_error = error or "unknown_telegram_error"
 
     def ai_metrics(self) -> dict:
         avg_duration = 0
@@ -91,6 +115,16 @@ class RuntimeStatus:
             avg_context = int(self.total_ai_context_build_ms / self.total_ai_requests)
 
         return {
+            "ai_requests_total": self.total_ai_requests,
+            "ai_requests_success": self.ai_success_requests,
+            "ai_requests_failed": self.ai_failed_requests,
+            "ai_avg_duration_ms": avg_duration,
+            "last_ai_error": self.last_ai_error,
+            "last_ai_request_at": self.last_ai_request_at.isoformat()
+            if self.last_ai_request_at
+            else None,
+            "last_provider": self.last_ai_provider,
+            "last_model": self.last_ai_model,
             "total_ai_requests": self.total_ai_requests,
             "ai_success_requests": self.ai_success_requests,
             "ai_failed_requests": self.ai_failed_requests,
@@ -103,6 +137,12 @@ class RuntimeStatus:
 
     def telegram_metrics(self) -> dict:
         return {
+            "telegram_messages_total": self.telegram_messages_total,
+            "telegram_messages_failed": self.telegram_messages_failed,
+            "telegram_last_message_at": self.telegram_last_message_at.isoformat()
+            if self.telegram_last_message_at
+            else None,
+            "telegram_last_error": self.telegram_last_error,
             "telegram_messages_processed": self.telegram_messages_processed,
         }
 
