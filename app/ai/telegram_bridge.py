@@ -8,6 +8,10 @@ import logging
 import time
 import asyncio
 from app.ai.orchestrator import orchestrator
+from app.services.operational_memory import (
+    build_memory_augmented_prompt,
+    maybe_handle_memory_query,
+)
 from app.services.operational_summary import maybe_handle_operational_query
 
 logger = logging.getLogger(__name__)
@@ -36,9 +40,17 @@ class TelegramAIBridge:
             logger.info("telegram_bridge: respuesta operacional duration_ms=%d", duration_ms)
             return self._format_operational(operational_response)
 
+        memory_response = await maybe_handle_memory_query(query)
+        if memory_response:
+            duration_ms = int((time.monotonic() - start) * 1000)
+            logger.info("telegram_bridge: respuesta memoria duration_ms=%d", duration_ms)
+            return self._format_operational(memory_response)
+
+        ai_query = await build_memory_augmented_prompt(query)
+
         try:
             result = await asyncio.wait_for(
-                orchestrator.generate(query),
+                orchestrator.generate(ai_query),
                 timeout=MAX_BRIDGE_SECONDS,
             )
         except asyncio.TimeoutError:

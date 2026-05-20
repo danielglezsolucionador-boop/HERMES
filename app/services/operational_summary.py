@@ -74,7 +74,7 @@ async def maybe_handle_operational_query(query: str) -> str | None:
 
 async def build_operational_response(route: str) -> str:
     try:
-        snapshot = await _load_snapshot()
+        snapshot = await load_operational_snapshot()
     except Exception as exc:
         logger.error("operational_summary: DB unavailable error=%s", exc)
         return "\n".join(
@@ -94,6 +94,10 @@ async def build_operational_response(route: str) -> str:
     if route == "runtime":
         return _format_runtime_summary(snapshot)
     return _format_operational_summary(snapshot)
+
+
+async def load_operational_snapshot() -> dict:
+    return await _load_snapshot()
 
 
 async def _load_snapshot() -> dict:
