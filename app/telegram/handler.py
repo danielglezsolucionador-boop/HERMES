@@ -7,7 +7,9 @@ Solo acepta mensajes del TELEGRAM_CHAT_ID autorizado.
 import logging
 from telegram import Update
 from telegram.ext import ContextTypes
+from app.ai.telegram_bridge import telegram_ai_bridge
 from app.core.config import settings
+from app.services.runtime_status import runtime_status
 from app.telegram.client import send_message
 
 logger = logging.getLogger(__name__)
@@ -36,6 +38,17 @@ def parse_message(update: Update) -> str | None:
     return text.strip()
 
 
+async def _save_conversation_message(role: str, message: str) -> None:
+    try:
+        from app.db.engine import AsyncSessionLocal
+        from app.repositories.conversation_repository import save_message
+
+        async with AsyncSessionLocal() as session:
+            await save_message(session, role=role, message=message)
+    except Exception as exc:
+        logger.warning("Telegram conversation persistence skipped: %s", exc)
+
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Handler principal de mensajes entrantes.
@@ -54,10 +67,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     chat_id = update.message.chat_id
     logger.info("Telegram → mensaje recibido chat_id=%s texto='%s'", chat_id, text)
+    await _save_conversation_message("user", text)
 
-    # Echo básico — Subfase 2.4 lo reemplazará con lógica real
-    response = f"Hermes recibió: {text}"
-    await send_message(response, chat_id=chat_id)
+    try:
+        response = await telegram_ai_bridge.handle_query(text)
+    except Exception as exc:
+        logger.error("Telegram AI bridge error: %s", exc)
+        response = "AI provider unavailable"
+
+    sent = await send_message(response, chat_id=chat_id)
+    runtime_status.mark_telegram_message_processed()
+    if sent:
+        await _save_conversation_message("hermes", response)
 
 
 async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

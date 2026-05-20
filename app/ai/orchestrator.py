@@ -11,6 +11,7 @@ from app.ai.context_builder import build_context
 from app.ai.context_isolation import sanitize_text
 from app.ai.guardrails import guardrails
 from app.ai.provider_registry import provider_registry, setup_registry
+from app.services.runtime_status import runtime_status
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,9 @@ def _build_prompt(context: dict, user_prompt: str) -> str:
         "summary": context.get("summary"),
         "tasks": context.get("tasks", []),
         "incidents": context.get("incidents", []),
+        "priorities": context.get("priorities", []),
+        "risks": context.get("risks", []),
+        "runtime": context.get("runtime", {}),
         "metadata": context.get("metadata", {}),
     }
     return "\n".join(
@@ -40,18 +44,21 @@ class AIResponseOrchestrator:
     async def generate(self, user_prompt: str, max_tokens: int = 1024) -> dict:
         start = time.monotonic()
         try:
-            return await asyncio.wait_for(
+            result = await asyncio.wait_for(
                 self._pipeline(user_prompt=user_prompt, max_tokens=max_tokens),
                 timeout=MAX_AI_SECONDS,
             )
         except asyncio.TimeoutError:
             duration_ms = int((time.monotonic() - start) * 1000)
             logger.error("orchestrator: timeout duration_ms=%s", duration_ms)
-            return self._error("timeout", f"AI timeout after {MAX_AI_SECONDS}s", duration_ms)
+            result = self._error("timeout", f"AI timeout after {MAX_AI_SECONDS}s", duration_ms)
         except Exception as exc:
             duration_ms = int((time.monotonic() - start) * 1000)
             logger.error("orchestrator: unexpected error=%s duration_ms=%s", exc, duration_ms)
-            return self._error("provider_error", str(exc), duration_ms)
+            result = self._error("provider_error", str(exc), duration_ms)
+
+        self._record_metrics(result)
+        return result
 
     async def _pipeline(self, user_prompt: str, max_tokens: int) -> dict:
         start = time.monotonic()
@@ -90,6 +97,8 @@ class AIResponseOrchestrator:
                 duration_ms,
                 provider=provider.provider_name,
                 model=provider_result.get("model"),
+                provider_ms=provider_result.get("duration_ms", 0),
+                context_build_ms=context.get("_timing", {}).get("build_ms", 0),
                 configured=True,
             )
 
@@ -105,6 +114,7 @@ class AIResponseOrchestrator:
             "model": provider_result.get("model"),
             "duration_ms": duration_ms,
             "provider_ms": provider_result.get("duration_ms", 0),
+            "context_build_ms": context.get("_timing", {}).get("build_ms", 0),
             "usage": usage,
             "tokens_estimated": usage.get("input_tokens", 0) + usage.get("output_tokens", 0),
             "context_chars": context.get("_timing", {}).get("chars", 0),
@@ -126,6 +136,8 @@ class AIResponseOrchestrator:
         duration_ms: int,
         provider: str | None = None,
         model: str | None = None,
+        provider_ms: int = 0,
+        context_build_ms: int = 0,
         configured: bool | None = None,
     ) -> dict:
         return {
@@ -134,7 +146,8 @@ class AIResponseOrchestrator:
             "provider": provider or provider_registry.active_name(),
             "model": model,
             "duration_ms": duration_ms,
-            "provider_ms": 0,
+            "provider_ms": provider_ms,
+            "context_build_ms": context_build_ms,
             "usage": {"input_tokens": 0, "output_tokens": 0},
             "tokens_estimated": 0,
             "context_chars": 0,
@@ -150,6 +163,19 @@ class AIResponseOrchestrator:
             "error": error_type,
             "error_detail": error,
         }
+
+    def _record_metrics(self, result: dict) -> None:
+        try:
+            runtime_status.mark_ai_request(
+                success=bool(result.get("success")),
+                duration_ms=result.get("duration_ms", 0),
+                provider=result.get("provider"),
+                model=result.get("model"),
+                provider_ms=result.get("provider_ms", 0),
+                context_build_ms=result.get("context_build_ms", 0),
+            )
+        except Exception as exc:
+            logger.warning("orchestrator: metrics update skipped error=%s", exc)
 
 
 orchestrator = AIResponseOrchestrator()

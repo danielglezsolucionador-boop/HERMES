@@ -27,6 +27,8 @@ async def runtime_status(session: AsyncSession = Depends(get_session)):
         review = counts.get("review", 0)
         running_legacy = counts.get("running", 0)
         pending = counts.get("pending", 0)
+        ai_metrics = runner_runtime_status.ai_metrics()
+        telegram_metrics = runner_runtime_status.telegram_metrics()
 
         return {
             "status": "online",
@@ -41,14 +43,12 @@ async def runtime_status(session: AsyncSession = Depends(get_session)):
                 "running_legacy": running_legacy,
             },
             "runner": runner_runtime_status.to_dict(),
-            "ai": {
-                "provider": "openrouter",
-                "model": "default",
-                "requests": 0,
-            },
-            "pipeline_avg_ms": 0,
-            "provider_avg_ms": 0,
-            "db_context_avg_ms": 0,
+            "ai": ai_metrics,
+            "telegram": telegram_metrics,
+            "telegram_messages_processed": telegram_metrics["telegram_messages_processed"],
+            "pipeline_avg_ms": ai_metrics["avg_ai_duration_ms"],
+            "provider_avg_ms": ai_metrics["avg_ai_provider_duration_ms"],
+            "db_context_avg_ms": ai_metrics["avg_ai_context_build_ms"],
         }
     except Exception as exc:
         logger.error("runtime/status error: %s", exc)
