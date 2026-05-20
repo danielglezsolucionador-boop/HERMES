@@ -33,10 +33,10 @@ async def send_message(text: str, chat_id: int | None = None) -> bool:
     try:
         bot = get_bot()
         await bot.send_message(chat_id=target, text=text)
-        logger.info("Telegram → mensaje enviado a chat_id=%s", target)
+        logger.info("Telegram -> mensaje enviado a chat_id=%s", target)
         return True
     except TelegramError as e:
-        logger.error("Telegram → error enviando mensaje: %s", e)
+        logger.error("Telegram -> error enviando mensaje: %s", e)
         return False
 
 
@@ -48,8 +48,8 @@ async def validate_connection() -> bool:
     try:
         bot = get_bot()
         me = await bot.get_me()
-        logger.info("Telegram → bot conectado: @%s", me.username)
+        logger.info("Telegram -> bot conectado: @%s", me.username)
         return True
     except TelegramError as e:
-        logger.error("Telegram → error de conexión: %s", e)
+        logger.error("Telegram -> error de conexion: %s", e)
         return False

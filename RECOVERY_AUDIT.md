@@ -3,6 +3,16 @@
 Fecha: 2026-05-20
 Modo: local primero, sin cloud, sin runner nuevo, sin provider real.
 
+## ACTUALIZACION FASE C - RECOVERY IA LOCAL
+
+- `/ai/test` ahora usa `app.ai.orchestrator.orchestrator` y OpenRouter real con `max_tokens` controlado.
+- `handle_message` de Telegram ya no responde echo; usa `telegram_ai_bridge -> orchestrator -> context_builder -> OpenRouter`.
+- Telegram persiste mensajes `user` y `hermes` en `telegram_conversations` con fallback seguro si DB falla.
+- `context_builder` agrega prioridades y riesgos operacionales derivados de PostgreSQL y runtime local.
+- `orchestrator` incluye `priorities`, `risks` y `runtime` en el contexto enviado al provider.
+- Runner sigue offline por decision operativa; no se habilito en esta fase.
+- Cloud sigue fuera de alcance; no se desplego ni se parcheo cloud.
+
 ## FUNCIONA
 
 - FastAPI importa correctamente.

@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 from fastapi import FastAPI
@@ -9,6 +10,20 @@ from app.core.logging import logger
 from app.db.engine import engine
 from app.integrations.claude_client import validate_startup
 from app.telegram.polling import start_polling, stop_polling
+
+
+def _log_background_task_error(task: asyncio.Task) -> None:
+    if task.cancelled():
+        logger.info("telegram polling background task cancelled")
+        return
+    try:
+        exc = task.exception()
+    except asyncio.CancelledError:
+        logger.info("telegram polling background task cancelled")
+        return
+    if exc is not None:
+        logger.error("telegram polling background task failed: %s", exc)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -22,13 +37,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.info("  database : connected")
     except Exception as e:
         logger.warning(f"  database : disconnected - {e}")
-    import asyncio
     validate_startup()
-    asyncio.ensure_future(start_polling())
-    logger.info("  telegram : polling started")
+    polling_task = asyncio.create_task(start_polling())
+    polling_task.add_done_callback(_log_background_task_error)
+    app.state.telegram_polling_task = polling_task
+    logger.info("  telegram : polling scheduled")
     try:
         yield
     finally:
+        if not polling_task.done():
+            polling_task.cancel()
+            try:
+                await polling_task
+            except asyncio.CancelledError:
+                logger.info("telegram polling startup task cancelled during shutdown")
         await stop_polling()
         logger.info("HERMES shutting down - goodbye.")
 

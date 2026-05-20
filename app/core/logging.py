@@ -27,6 +27,8 @@ def setup_logging() -> logging.Logger:
         root_logger.addHandler(handler)
 
     logging.getLogger('uvicorn.access').setLevel(logging.WARNING)
+    logging.getLogger('httpx').setLevel(logging.WARNING)
+    logging.getLogger('httpcore').setLevel(logging.WARNING)
 
     return logging.getLogger(settings.APP_NAME)
 

@@ -31,12 +31,12 @@ async def start_polling() -> None:
         logger.info("Telegram polling already active")
         return
 
-    logger.info("Telegram polling → iniciando...")
+    logger.info("Telegram polling -> iniciando...")
 
     # Validar conexión
     ok = await validate_connection()
     if not ok:
-        logger.error("Telegram polling → conexión fallida, abortando")
+        logger.error("Telegram polling -> conexion fallida, abortando")
         return
 
     # Construir aplicación
@@ -55,8 +55,8 @@ async def start_polling() -> None:
     app.add_handler(CommandHandler("pending", handle_pending))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    logger.info("Telegram polling → handlers registrados")
-    logger.info("Telegram polling → escuchando mensajes...")
+    logger.info("Telegram polling -> handlers registrados")
+    logger.info("Telegram polling -> escuchando mensajes...")
 
     # Iniciar polling
     try:
@@ -67,7 +67,7 @@ async def start_polling() -> None:
         _telegram_app = None
         raise
 
-    logger.info("Telegram polling → activo ✅")
+    logger.info("Telegram polling -> activo")
 
 
 async def stop_polling() -> None:

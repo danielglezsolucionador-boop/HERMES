@@ -10,6 +10,7 @@ from telegram.ext import ContextTypes
 from app.ai.telegram_bridge import telegram_ai_bridge
 from app.core.config import settings
 from app.services.runtime_status import runtime_status
+from app.services.operational_summary import maybe_handle_operational_query
 from app.telegram.client import send_message
 
 logger = logging.getLogger(__name__)
@@ -23,7 +24,7 @@ def is_authorized(update: Update) -> bool:
     authorized = chat_id == settings.TELEGRAM_CHAT_ID
     if not authorized:
         logger.warning(
-            "Telegram → acceso bloqueado chat_id=%s (no autorizado)", chat_id
+            "Telegram -> acceso bloqueado chat_id=%s (no autorizado)", chat_id
         )
     return authorized
 
@@ -52,28 +53,24 @@ async def _save_conversation_message(role: str, message: str) -> None:
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Handler principal de mensajes entrantes.
-    1. Valida autorización
+    1. Valida autorizacion
     2. Parsea mensaje
-    3. Loguea
-    4. Responde echo básico
+    3. Resuelve consultas ejecutivas contra estado operacional real
+    4. Usa el bridge IA solo para consultas no operacionales
     """
     if not is_authorized(update):
         return
 
     text = parse_message(update)
     if not text:
-        logger.debug("Telegram → mensaje vacío ignorado")
+        logger.debug("Telegram -> mensaje vacio ignorado")
         return
 
     chat_id = update.message.chat_id
-    logger.info("Telegram → mensaje recibido chat_id=%s texto='%s'", chat_id, text)
+    logger.info("Telegram -> mensaje recibido chat_id=%s texto='%s'", chat_id, text)
     await _save_conversation_message("user", text)
 
-    try:
-        response = await telegram_ai_bridge.handle_query(text)
-    except Exception as exc:
-        logger.error("Telegram AI bridge error: %s", exc)
-        response = "AI provider unavailable"
+    response = await _build_message_response(text)
 
     sent = await send_message(response, chat_id=chat_id)
     runtime_status.mark_telegram_message(
@@ -82,6 +79,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     )
     if sent:
         await _save_conversation_message("hermes", response)
+
+
+async def _build_message_response(text: str) -> str:
+    try:
+        operational_response = await maybe_handle_operational_query(text)
+    except Exception as exc:
+        logger.error("Telegram operational routing error: %s", exc)
+        operational_response = None
+
+    if operational_response:
+        return f"Hermes operacional\n\n{operational_response}"
+
+    try:
+        return await telegram_ai_bridge.handle_query(text)
+    except Exception as exc:
+        logger.error("Telegram AI bridge error: %s", exc)
+        return "AI provider unavailable"
 
 
 async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

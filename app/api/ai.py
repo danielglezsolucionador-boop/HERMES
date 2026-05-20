@@ -8,9 +8,9 @@ import json
 from fastapi import APIRouter
 from pydantic import BaseModel
 
+from app.ai.orchestrator import orchestrator
 from app.ai.context_builder import build_context
 from app.ai.context_isolation import build_operational_context, sanitize_text
-from app.integrations.claude_client import ask
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +19,7 @@ router = APIRouter(prefix="/ai", tags=["ai"])
 
 class AITestRequest(BaseModel):
     prompt: str = "Resume el estado operacional de Hermes."
+    max_tokens: int = 128
 
 
 def _build_ai_test_prompt(context: dict, user_prompt: str) -> str:
@@ -40,9 +41,17 @@ def _build_ai_test_prompt(context: dict, user_prompt: str) -> str:
     )
 
 
+async def _run_ai_test(request: AITestRequest) -> dict:
+    logger.info("ai_test: prompt_chars=%s", len(request.prompt))
+    max_tokens = max(16, min(request.max_tokens, 512))
+    return await orchestrator.generate(request.prompt, max_tokens=max_tokens)
+
+
 @router.post("/test")
 async def ai_test(request: AITestRequest) -> dict:
-    logger.info("ai_test: prompt_chars=%s", len(request.prompt))
-    context = await build_context()
-    prompt = _build_ai_test_prompt(context, request.prompt)
-    return await ask(prompt)
+    return await _run_ai_test(request)
+
+
+@router.get("/test")
+async def ai_test_get() -> dict:
+    return await _run_ai_test(AITestRequest())

@@ -58,8 +58,11 @@ def _snapshot():
 
 def test_classify_operational_queries():
     assert operational_summary.classify_operational_query("que paso hoy") == "summary"
+    assert operational_summary.classify_operational_query("qu\u00e9 pas\u00f3 hoy") == "summary"
     assert operational_summary.classify_operational_query("que tareas fallaron") == "failed"
+    assert operational_summary.classify_operational_query("qu\u00e9 tareas fallaron") == "failed"
     assert operational_summary.classify_operational_query("que esta atrasado") == "delayed"
+    assert operational_summary.classify_operational_query("qu\u00e9 est\u00e1 atrasado") == "delayed"
     assert operational_summary.classify_operational_query("que riesgos tenemos") == "risks"
     assert operational_summary.classify_operational_query("como estamos?") == "health"
     assert operational_summary.classify_operational_query("hay problemas?") == "issues"

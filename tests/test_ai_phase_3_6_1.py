@@ -5,6 +5,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.core.config import settings
+from app.api import ai as ai_api
 from app.api.ai import _build_ai_test_prompt
 from app.integrations import claude_client
 from app.integrations.claude_client import ask, validate_startup
@@ -77,11 +78,30 @@ async def test_ask_without_key_returns_controlled_schema(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_ai_test_endpoint_without_key_is_controlled(monkeypatch):
+async def test_ai_test_endpoint_uses_orchestrator_without_real_http(monkeypatch):
     def fail_if_called(*args, **kwargs):
-        raise AssertionError("No real HTTP request is allowed in subphase 3.6.1")
+        raise AssertionError("No real Claude HTTP request is allowed from /ai/test")
 
     monkeypatch.setattr(claude_client.httpx, "AsyncClient", fail_if_called)
+
+    async def fake_generate(prompt: str, max_tokens: int = 1024):
+        return {
+            "success": True,
+            "response": "Hermes operativo",
+            "provider": "openrouter",
+            "model": "test-model",
+            "duration_ms": 1,
+            "provider_ms": 1,
+            "usage": {"input_tokens": 1, "output_tokens": 2},
+            "tokens_estimated": 3,
+            "context_chars": 10,
+            "guardrail_blocked": False,
+            "guardrail_reason": None,
+            "handoff": {"agent": "openrouter", "status": "completed"},
+            "error": None,
+        }
+
+    monkeypatch.setattr(ai_api.orchestrator, "generate", fake_generate)
 
     async with AsyncClient(
         transport=ASGITransport(app=app),
@@ -91,11 +111,10 @@ async def test_ai_test_endpoint_without_key_is_controlled(monkeypatch):
 
     data = response.json()
     assert response.status_code == 200
-    assert data["success"] is False
-    assert data["content"] is None
-    assert data["model"] is None
-    assert data["error"] == "provider_not_configured"
-    assert data["usage"] == {"input_tokens": 0, "output_tokens": 0}
+    assert data["success"] is True
+    assert data["response"] == "Hermes operativo"
+    assert data["provider"] == "openrouter"
+    assert data["usage"] == {"input_tokens": 1, "output_tokens": 2}
 
 
 @pytest.mark.asyncio

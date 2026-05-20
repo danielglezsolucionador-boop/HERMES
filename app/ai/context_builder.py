@@ -34,6 +34,26 @@ def _task_summary(task) -> dict:
     }
 
 
+def _build_operational_notes(counts: dict, runner_health: str) -> tuple[list[str], list[str]]:
+    priorities = []
+    risks = []
+
+    if counts["failed"]:
+        priorities.append(f"Revisar {counts['failed']} task(s) fallidas antes de avanzar.")
+        risks.append(f"{counts['failed']} task(s) fallidas requieren diagnostico.")
+    if counts["doing"] and runner_health == "offline":
+        priorities.append(
+            f"Auditar {counts['doing']} task(s) en doing porque el runner esta offline."
+        )
+        risks.append("Runner offline con tasks en doing puede indicar trabajo detenido.")
+    if counts["pending"]:
+        priorities.append(f"Procesar {counts['pending']} task(s) pendientes cuando el runner sea habilitado.")
+    if not priorities:
+        priorities.append("Mantener monitoreo operacional; no hay pending ni failed.")
+
+    return priorities, risks
+
+
 async def build_context() -> dict:
     start = time.monotonic()
     tasks = []
@@ -63,20 +83,27 @@ async def build_context() -> dict:
         incidents.append(f"Error consultando PostgreSQL: {sanitize_text(exc)}")
 
     tasks = tasks[:MAX_TASKS_CONTEXT]
+    runner_health = runtime_status.health_status()
+    priorities, risks = _build_operational_notes(counts, runner_health)
+
     context = {
         "summary": (
-            f"Runner: {runtime_status.health_status()} | "
+            f"Runner: {runner_health} | "
             f"Pending: {counts['pending']} | Doing: {counts['doing']} | "
-            f"Review: {counts['review']} | Failed: {counts['failed']}"
+            f"Review: {counts['review']} | Done: {counts['done']} | Failed: {counts['failed']}"
         ),
         "tasks": tasks,
         "incidents": incidents[:5],
+        "priorities": priorities,
+        "risks": risks,
         "runtime": runtime_status.to_dict(),
         "metadata": {
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "source": "hermes",
-            "context_version": "3.6",
-            "runtime": runtime_status.health_status(),
+            "context_version": "3.8-local-recovery",
+            "source_of_truth": "postgresql",
+            "operational_mode": "local",
+            "runtime": runner_health,
         },
     }
     total_chars = safe_json_chars(context)
