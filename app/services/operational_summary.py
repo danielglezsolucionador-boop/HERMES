@@ -40,6 +40,14 @@ def classify_operational_query(query: str) -> str | None:
     if not text:
         return None
 
+    if any(term in text for term in ["ai timeout", "ia timeout", "timeout ia", "timeout ai", "provider timeout"]):
+        return "ai_timeout"
+    if any(term in text for term in ["retries", "retry", "reintento", "reintentos"]):
+        return "retries"
+    if any(term in text for term in ["ultima task", "ultimas task", "ultimas tareas", "last tasks", "latest tasks"]):
+        return "last_tasks"
+    if any(term in text for term in ["backlog", "cola", "pendientes", "en cola"]):
+        return "backlog"
     if any(term in text for term in ["riesgo", "riesgos"]):
         return "risks"
     if "telegram" in text and "estable" in text:
@@ -98,6 +106,14 @@ async def build_operational_response(route: str) -> str:
 
     if route == "failed":
         return _format_failed_summary(snapshot)
+    if route == "backlog":
+        return _format_backlog_summary(snapshot)
+    if route == "retries":
+        return _format_retry_summary(snapshot)
+    if route == "ai_timeout":
+        return _format_ai_timeout_summary(snapshot)
+    if route == "last_tasks":
+        return _format_last_tasks_summary(snapshot)
     if route in {"health", "issues", "ai_health", "telegram_health", "runtime_health"}:
         health = await _load_health(snapshot["counts"])
         if route == "issues":
@@ -188,11 +204,17 @@ async def _load_snapshot() -> dict:
             .order_by(Task.created_at.asc())
             .limit(MAX_TASK_LINES)
         )
+        recent_tasks = await session.execute(
+            select(Task)
+            .order_by(Task.updated_at.desc(), Task.created_at.desc())
+            .limit(MAX_TASK_LINES)
+        )
 
         recent_today_tasks = list(recent_today.scalars().all())
         failed = list(failed_tasks.scalars().all())
         doing = list(doing_tasks.scalars().all())
         pending = list(pending_tasks.scalars().all())
+        recent = list(recent_tasks.scalars().all())
 
     runner = runtime_status.to_dict()
     priorities, risks = _build_priorities_and_risks(counts, runner)
@@ -209,6 +231,7 @@ async def _load_snapshot() -> dict:
         "created_today": int(created_today or 0),
         "completed_today": int(completed_today or 0),
         "recent_today_tasks": recent_today_tasks,
+        "recent_tasks": recent,
         "failed_tasks": failed,
         "doing_tasks": doing,
         "pending_tasks": pending,
@@ -273,6 +296,68 @@ def _format_failed_summary(snapshot: dict) -> str:
     ]
     lines.extend(_task_section("Ultimas fallidas", snapshot["failed_tasks"], include_error=True))
     lines.extend(_section("Prioridad", snapshot["priorities"][:2]))
+    return "\n".join(lines)
+
+
+def _format_backlog_summary(snapshot: dict) -> str:
+    counts = snapshot["counts"]
+    backlog = counts["pending"] + counts["doing"]
+    lines = [
+        "Backlog operacional",
+        f"Total backlog: {backlog} | pending {counts['pending']} | doing {counts['doing']}",
+        _runtime_line(snapshot),
+    ]
+    lines.extend(_task_section("Pendientes mas antiguas", snapshot["pending_tasks"]))
+    lines.extend(_task_section("En doing mas antiguas", snapshot["doing_tasks"]))
+    return "\n".join(lines)
+
+
+def _format_retry_summary(snapshot: dict) -> str:
+    retry_tasks = [
+        task
+        for task in snapshot["failed_tasks"] + snapshot["pending_tasks"]
+        if getattr(task, "retry_count", 0)
+    ]
+    lines = [
+        "Reintentos operacionales",
+        _runtime_line(snapshot),
+    ]
+    lines.extend(_retry_task_section("Tasks con reintentos registrados", retry_tasks))
+    if not retry_tasks:
+        lines.append("No veo reintentos registrados en las tasks recientes.")
+    return "\n".join(lines)
+
+
+def _format_ai_timeout_summary(snapshot: dict) -> str:
+    runner = snapshot["runner"]
+    timeout_tasks = [
+        task
+        for task in snapshot["failed_tasks"]
+        if "timeout" in _normalize(getattr(task, "error", "") or "")
+    ]
+    lines = [
+        "Timeout IA",
+        (
+            f"Requests IA: total {runner.get('total_ai_requests', 0)} | "
+            f"fallidos {runner.get('ai_failed_requests', 0)} | "
+            f"avg {runner.get('avg_ai_duration_ms', 0)}ms"
+        ),
+        (
+            f"Ultimo provider: {runner.get('last_ai_provider') or '-'} | "
+            f"ultimo error: {runner.get('last_ai_error') or '-'}"
+        ),
+    ]
+    lines.extend(_task_section("Fallidas con timeout", timeout_tasks, include_error=True))
+    return "\n".join(lines)
+
+
+def _format_last_tasks_summary(snapshot: dict) -> str:
+    recent_tasks = snapshot.get("recent_tasks") or snapshot["recent_today_tasks"]
+    lines = [
+        "Ultimas tasks",
+        _runtime_line(snapshot),
+    ]
+    lines.extend(_task_section("Mas recientes", recent_tasks, include_error=True))
     return "\n".join(lines)
 
 
@@ -419,6 +504,21 @@ def _task_section(title: str, tasks: list[Task], include_error: bool = False) ->
         if include_error and task.error:
             line = f"{line} error={_clip(task.error, 100)}"
         lines.append(line)
+    return lines
+
+
+def _retry_task_section(title: str, tasks: list[Task]) -> list[str]:
+    if not tasks:
+        return [f"{title}: ninguna."]
+    lines = [f"{title}:"]
+    for task in tasks[:MAX_TASK_LINES]:
+        retry_count = getattr(task, "retry_count", 0)
+        max_retries = getattr(task, "max_retries", 0)
+        last_retry = getattr(task, "last_retry_at", None)
+        last_retry_text = last_retry.isoformat() if last_retry else "-"
+        lines.append(
+            f"- {_task_ref(task)} [{task.status}] retry {retry_count}/{max_retries} last={last_retry_text}"
+        )
     return lines
 
 

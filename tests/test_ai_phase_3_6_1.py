@@ -84,6 +84,9 @@ async def test_ai_test_endpoint_uses_orchestrator_without_real_http(monkeypatch)
 
     monkeypatch.setattr(claude_client.httpx, "AsyncClient", fail_if_called)
 
+    async def no_operational_route(prompt: str):
+        return None
+
     async def fake_generate(prompt: str, max_tokens: int = 1024):
         return {
             "success": True,
@@ -101,13 +104,14 @@ async def test_ai_test_endpoint_uses_orchestrator_without_real_http(monkeypatch)
             "error": None,
         }
 
+    monkeypatch.setattr(ai_api, "maybe_handle_operational_query", no_operational_route)
     monkeypatch.setattr(ai_api.orchestrator, "generate", fake_generate)
 
     async with AsyncClient(
         transport=ASGITransport(app=app),
         base_url="http://test",
     ) as client:
-        response = await client.post("/ai/test", json={"prompt": "estado operacional"})
+        response = await client.post("/ai/test", json={"prompt": "consulta libre"})
 
     data = response.json()
     assert response.status_code == 200
@@ -115,6 +119,31 @@ async def test_ai_test_endpoint_uses_orchestrator_without_real_http(monkeypatch)
     assert data["response"] == "Hermes operativo"
     assert data["provider"] == "openrouter"
     assert data["usage"] == {"input_tokens": 1, "output_tokens": 2}
+
+
+@pytest.mark.asyncio
+async def test_ai_test_endpoint_routes_operational_queries_without_provider(monkeypatch):
+    async def fake_operational(prompt: str):
+        assert prompt == "Backlog"
+        return "Backlog operacional\nTotal backlog: 3 | pending 2 | doing 1"
+
+    async def fail_generate(*args, **kwargs):
+        raise AssertionError("Operational queries should not call the AI provider")
+
+    monkeypatch.setattr(ai_api, "maybe_handle_operational_query", fake_operational)
+    monkeypatch.setattr(ai_api.orchestrator, "generate", fail_generate)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        response = await client.post("/ai/test", json={"prompt": "Backlog"})
+
+    data = response.json()
+    assert response.status_code == 200
+    assert data["success"] is True
+    assert data["provider"] == "operational_summary"
+    assert "Backlog operacional" in data["response"]
 
 
 @pytest.mark.asyncio

@@ -13,6 +13,9 @@ def _task(title: str, status: str, error: str | None = None):
         title=title,
         status=status,
         error=error,
+        retry_count=1 if error else 0,
+        max_retries=3,
+        last_retry_at=None,
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
     )
@@ -35,6 +38,7 @@ def _snapshot():
         "created_today": 1,
         "completed_today": 1,
         "recent_today_tasks": [failed_task, doing_task],
+        "recent_tasks": [failed_task, doing_task, pending_task],
         "failed_tasks": [failed_task],
         "doing_tasks": [doing_task],
         "pending_tasks": [pending_task],
@@ -48,6 +52,7 @@ def _snapshot():
             "avg_ai_duration_ms": 1200,
             "last_ai_provider": "openrouter",
             "last_ai_model": "test-model",
+            "last_ai_error": "timeout",
             "telegram_messages_processed": 4,
         },
         "priorities": ["Revisar 1 task(s) fallidas."],
@@ -69,6 +74,11 @@ def test_classify_operational_queries():
     assert operational_summary.classify_operational_query("runtime estable?") == "runtime_health"
     assert operational_summary.classify_operational_query("telegram estable?") == "telegram_health"
     assert operational_summary.classify_operational_query("IA estable?") == "ai_health"
+    assert operational_summary.classify_operational_query("Backlog") == "backlog"
+    assert operational_summary.classify_operational_query("backlog") == "backlog"
+    assert operational_summary.classify_operational_query("retries") == "retries"
+    assert operational_summary.classify_operational_query("AI timeout") == "ai_timeout"
+    assert operational_summary.classify_operational_query("ultima tasks") == "last_tasks"
     assert operational_summary.classify_operational_query("hola hermes") is None
 
 
@@ -87,6 +97,26 @@ async def test_failed_summary_uses_operational_snapshot(monkeypatch):
     assert "Total failed en PostgreSQL: 1" in response
     assert "Validar OpenRouter" in response
     assert "provider timeout real" in response
+
+
+@pytest.mark.asyncio
+async def test_new_operational_routes_use_snapshot(monkeypatch):
+    async def fake_snapshot():
+        return _snapshot()
+
+    monkeypatch.setattr(operational_summary, "_load_snapshot", fake_snapshot)
+
+    backlog = await operational_summary.build_operational_response("backlog")
+    retries = await operational_summary.build_operational_response("retries")
+    ai_timeout = await operational_summary.build_operational_response("ai_timeout")
+    last_tasks = await operational_summary.build_operational_response("last_tasks")
+
+    assert "Backlog operacional" in backlog
+    assert "pending 1" in backlog
+    assert "retry 1/3" in retries
+    assert "Timeout IA" in ai_timeout
+    assert "provider timeout real" in ai_timeout
+    assert "Ultimas tasks" in last_tasks
 
 
 @pytest.mark.asyncio

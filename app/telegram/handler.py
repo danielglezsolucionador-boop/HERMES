@@ -7,7 +7,7 @@ Solo acepta mensajes del TELEGRAM_CHAT_ID autorizado.
 import logging
 from telegram import Update
 from telegram.ext import ContextTypes
-from app.ai.telegram_bridge import telegram_ai_bridge
+from app.ai.telegram_bridge import AI_PROVIDER_UNAVAILABLE_MESSAGE, telegram_ai_bridge
 from app.core.config import settings
 from app.services.runtime_status import runtime_status
 from app.services.operational_summary import maybe_handle_operational_query
@@ -95,7 +95,7 @@ async def _build_message_response(text: str) -> str:
         return await telegram_ai_bridge.handle_query(text)
     except Exception as exc:
         logger.error("Telegram AI bridge error: %s", exc)
-        return "AI provider unavailable"
+        return AI_PROVIDER_UNAVAILABLE_MESSAGE
 
 
 async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

@@ -17,6 +17,14 @@ from app.services.operational_summary import maybe_handle_operational_query
 logger = logging.getLogger(__name__)
 
 MAX_BRIDGE_SECONDS = 25
+AI_PROVIDER_UNAVAILABLE_MESSAGE = (
+    "No pude conectarme al provider IA en este momento. "
+    "Reintentando automaticamente."
+)
+AI_TIMEOUT_MESSAGE = (
+    "La respuesta de IA demoro mas de lo esperado. "
+    "Mantengo el runtime operativo y reintento automaticamente."
+)
 
 
 class TelegramAIBridge:
@@ -58,14 +66,14 @@ class TelegramAIBridge:
             logger.warning(
                 "telegram_bridge: timeout duration_ms=%d", duration_ms
             )
-            return "AI timeout"
+            return AI_TIMEOUT_MESSAGE
 
         except Exception as exc:
             duration_ms = int((time.monotonic() - start) * 1000)
             logger.error(
                 "telegram_bridge: error inesperado=%s duration_ms=%d", exc, duration_ms
             )
-            return "AI provider unavailable"
+            return AI_PROVIDER_UNAVAILABLE_MESSAGE
 
         duration_ms = int((time.monotonic() - start) * 1000)
 
@@ -74,7 +82,7 @@ class TelegramAIBridge:
                 "telegram_bridge: provider error=%s duration_ms=%d",
                 result.get("error"), duration_ms,
             )
-            return "AI provider unavailable"
+            return AI_PROVIDER_UNAVAILABLE_MESSAGE
 
         response = result.get("response") or ""
 
@@ -94,8 +102,8 @@ class TelegramAIBridge:
     def _format(self, response: str) -> str:
         """Formatea respuesta para Telegram."""
         if not response:
-            return "AI provider unavailable"
-        return f"🤖 Hermes AI\n\n{response}"
+            return AI_PROVIDER_UNAVAILABLE_MESSAGE
+        return f"Hermes AI\n\n{response}"
 
     def _format_operational(self, response: str) -> str:
         if not response:
