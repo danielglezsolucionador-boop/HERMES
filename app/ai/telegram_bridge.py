@@ -8,6 +8,7 @@ import logging
 import time
 import asyncio
 from app.ai.orchestrator import orchestrator
+from app.services.operational_summary import maybe_handle_operational_query
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,12 @@ class TelegramAIBridge:
         start = time.monotonic()
         query_chars = len(query)
         logger.info("telegram_bridge: query recibida chars=%d", query_chars)
+
+        operational_response = await maybe_handle_operational_query(query)
+        if operational_response:
+            duration_ms = int((time.monotonic() - start) * 1000)
+            logger.info("telegram_bridge: respuesta operacional duration_ms=%d", duration_ms)
+            return self._format_operational(operational_response)
 
         try:
             result = await asyncio.wait_for(
@@ -77,6 +84,11 @@ class TelegramAIBridge:
         if not response:
             return "AI provider unavailable"
         return f"🤖 Hermes AI\n\n{response}"
+
+    def _format_operational(self, response: str) -> str:
+        if not response:
+            return "Hermes operacional\n\nSin datos operacionales disponibles."
+        return f"Hermes operacional\n\n{response}"
 
 
 telegram_ai_bridge = TelegramAIBridge()
