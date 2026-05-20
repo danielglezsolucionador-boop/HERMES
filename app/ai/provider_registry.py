@@ -5,6 +5,7 @@ Registra, obtiene y valida providers disponibles.
 Hermes NO está acoplado a ningún provider específico.
 """
 import logging
+from app.core.config import settings
 from app.ai.providers.base import AIProvider
 
 logger = logging.getLogger(__name__)
@@ -57,13 +58,23 @@ class ProviderRegistry:
 provider_registry = ProviderRegistry()
 
 
-def setup_registry(active_provider: str = "claude") -> None:
+def setup_registry(active_provider: str | None = None) -> None:
     """
     Inicializa el registry con los providers disponibles.
     Llamar en startup de Hermes.
     """
     from app.ai.providers.claude_provider import ClaudeProvider
+    from app.ai.providers.openrouter_provider import OpenRouterProvider
+
+    active_provider = active_provider or settings.AI_PROVIDER or "openrouter"
     provider_registry.register(ClaudeProvider())
+    provider_registry.register(OpenRouterProvider())
+    if active_provider not in provider_registry.available():
+        logger.warning(
+            "provider_registry: provider '%s' no registrado, usando openrouter",
+            active_provider,
+        )
+        active_provider = "openrouter"
     provider_registry.set_active(active_provider)
     logger.info(
         "provider_registry: setup completo providers=%s active='%s'",

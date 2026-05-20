@@ -1,0 +1,10 @@
+* [33m7391601[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m fix task model - use title and full schema matching DB
+* [33md238c51[m fix task list count query without subquery
+* [33mf384118[m fix list_tasks with status filter
+* [33mc16b4ed[m simplify main.py for cloud deploy - remove runner and telegram deps
+* [33md1aa9ef[m add stop_polling to telegram polling module
+* [33m47ad8b3[m restore full main.py with telegram polling and runner
+* [33m26086df[m fix httpx version conflict for python-telegram-bot
+* [33mfc271d0[m add render.yaml and update requirements
+* [33m6157029[m feat: hermes backend v0.1.0
+* [33m385bc43[m initial backend deploy

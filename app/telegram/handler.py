@@ -78,3 +78,102 @@ async def handle_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "✅ Hermes activo\n📡 Telegram conectado\n🗄️ DB operacional",
         chat_id=update.message.chat_id,
     )
+
+
+def _format_task_line(task) -> str:
+    short_id = str(task.id)[:8]
+    title = task.title or "(sin titulo)"
+    return f"- {short_id}... - {title} [{task.status}]"
+
+
+async def _send_tasks(update: Update, status_filter: str | None) -> None:
+    chat_id = update.message.chat_id
+    from app.services.task_service import VALID_TASK_STATUSES, get_tasks
+
+    if status_filter and status_filter not in VALID_TASK_STATUSES:
+        valid = ", ".join(sorted(VALID_TASK_STATUSES))
+        await send_message(
+            f"Status invalido: '{status_filter}'. Usa: {valid}",
+            chat_id=chat_id,
+        )
+        return
+
+    try:
+        tasks = await get_tasks(status=status_filter, limit=10)
+    except Exception as exc:
+        logger.error("Telegram tasks command error: %s", exc)
+        await send_message("Error consultando tasks.", chat_id=chat_id)
+        return
+
+    label = status_filter or "todas"
+    if not tasks:
+        await send_message(f"No hay tasks ({label}).", chat_id=chat_id)
+        return
+
+    lines = [f"Tasks ({label})"]
+    lines.extend(_format_task_line(task) for task in tasks)
+    await send_message("\n".join(lines), chat_id=chat_id)
+    logger.info(
+        "Telegram tasks command chat_id=%s status=%s count=%d",
+        chat_id,
+        status_filter,
+        len(tasks),
+    )
+
+
+async def handle_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handler para /tasks [status]."""
+    if not is_authorized(update):
+        return
+
+    args = context.args or []
+    status_filter = args[0].lower() if args else None
+    await _send_tasks(update, status_filter)
+
+
+async def handle_pending(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handler para /pending."""
+    if not is_authorized(update):
+        return
+
+    await _send_tasks(update, "pending")
+
+
+async def handle_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handler para /task <task_id>."""
+    if not is_authorized(update):
+        return
+
+    chat_id = update.message.chat_id
+    args = context.args or []
+    if not args:
+        await send_message("Uso: /task <task_id>", chat_id=chat_id)
+        return
+
+    task_id = args[0].strip()
+    from app.services.task_service import get_task
+
+    try:
+        task = await get_task(task_id)
+    except Exception as exc:
+        logger.error("Telegram task command error: %s", exc)
+        await send_message("Error consultando task.", chat_id=chat_id)
+        return
+
+    if task is None:
+        await send_message(f"Task no encontrada: {task_id}", chat_id=chat_id)
+        return
+
+    created = task.created_at.strftime("%Y-%m-%d %H:%M") if task.created_at else "-"
+    message = "\n".join(
+        [
+            "Task",
+            f"ID: {task.id}",
+            f"Title: {task.title}",
+            f"Status: {task.status}",
+            f"Phase: {task.phase or '-'}",
+            f"Created: {created}",
+        ]
+    )
+    await send_message(message, chat_id=chat_id)
+    logger.info("Telegram task command chat_id=%s task_id=%s", chat_id, task_id)

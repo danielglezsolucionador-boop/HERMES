@@ -37,7 +37,7 @@ async def test_ready(client):
 
 @pytest.mark.asyncio
 async def test_create_task(client):
-    r = await client.post("/tasks", json={"name": "test-create"})
+    r = await client.post("/tasks", json={"title": "test-create"})
     assert r.status_code == 201
     assert r.json()["status"] == "pending"
     assert "id" in r.json()
@@ -45,7 +45,7 @@ async def test_create_task(client):
 
 @pytest.mark.asyncio
 async def test_list_tasks(client):
-    await client.post("/tasks", json={"name": "list-test"})
+    await client.post("/tasks", json={"title": "list-test"})
     r = await client.get("/tasks")
     assert r.status_code == 200
     assert isinstance(r.json(), list)
@@ -60,7 +60,7 @@ async def test_list_tasks_pagination(client):
 
 @pytest.mark.asyncio
 async def test_get_task(client):
-    r_create = await client.post("/tasks", json={"name": "get-test"})
+    r_create = await client.post("/tasks", json={"title": "get-test"})
     task_id = r_create.json()["id"]
     r = await client.get(f"/tasks/{task_id}")
     assert r.status_code == 200
@@ -69,16 +69,16 @@ async def test_get_task(client):
 
 @pytest.mark.asyncio
 async def test_update_task_status(client):
-    r_create = await client.post("/tasks", json={"name": "update-test"})
+    r_create = await client.post("/tasks", json={"title": "update-test"})
     task_id = r_create.json()["id"]
-    r = await client.patch(f"/tasks/{task_id}", json={"status": "running"})
+    r = await client.patch(f"/tasks/{task_id}/status", json={"status": "doing"})
     assert r.status_code == 200
-    assert r.json()["status"] == "running"
+    assert r.json()["status"] == "doing"
 
 
 @pytest.mark.asyncio
 async def test_delete_task(client):
-    r_create = await client.post("/tasks", json={"name": "delete-test"})
+    r_create = await client.post("/tasks", json={"title": "delete-test"})
     task_id = r_create.json()["id"]
     r = await client.delete(f"/tasks/{task_id}")
     assert r.status_code == 204

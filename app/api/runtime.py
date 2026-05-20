@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from app.db.session import get_session
 from app.models.task import Task
+from app.services.runtime_status import runtime_status as runner_runtime_status
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,9 @@ async def runtime_status(session: AsyncSession = Depends(get_session)):
         total = sum(counts.values())
         done = counts.get("done", 0)
         failed = counts.get("failed", 0)
-        running = counts.get("running", 0)
+        doing = counts.get("doing", 0)
+        review = counts.get("review", 0)
+        running_legacy = counts.get("running", 0)
         pending = counts.get("pending", 0)
 
         return {
@@ -32,9 +35,12 @@ async def runtime_status(session: AsyncSession = Depends(get_session)):
                 "total": total,
                 "done": done,
                 "failed": failed,
-                "running": running,
+                "doing": doing,
+                "review": review,
                 "pending": pending,
+                "running_legacy": running_legacy,
             },
+            "runner": runner_runtime_status.to_dict(),
             "ai": {
                 "provider": "openrouter",
                 "model": "default",

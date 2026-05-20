@@ -7,7 +7,8 @@ from datetime import datetime
 
 class TaskStatus(str, Enum):
     pending = "pending"
-    running = "running"
+    doing = "doing"
+    review = "review"
     done = "done"
     failed = "failed"
 
@@ -15,6 +16,7 @@ class TaskStatus(str, Enum):
 class TaskCreate(BaseModel):
     title: str
     description: Optional[str] = None
+    phase: Optional[str] = None
     payload: dict[str, Any] | None = None
 
 
@@ -27,6 +29,10 @@ class TaskUpdate(BaseModel):
     error: Optional[str] = None
 
 
+class TaskStatusUpdate(BaseModel):
+    status: TaskStatus
+
+
 class TaskRead(BaseModel):
     id: uuid.UUID
     title: str
@@ -36,7 +42,11 @@ class TaskRead(BaseModel):
     payload: dict[str, Any] | None = None
     result: dict[str, Any] | None = None
     error: str | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    last_retry_at: datetime | None = None
     retry_count: int = 0
+    max_retries: int = 3
     created_at: datetime
     updated_at: datetime
 

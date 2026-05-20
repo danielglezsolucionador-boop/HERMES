@@ -24,10 +24,17 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = 'postgresql+asyncpg://user:pass@localhost/hermes'
 
-    # Logging
-        # Telegram
+    # AI providers
+    AI_PROVIDER: str = 'openrouter'
+    CLAUDE_API_KEY: str = ''
+    CLAUDE_REAL_REQUESTS_ENABLED: bool = False
+    OPENROUTER_API_KEY: str = ''
+
+    # Telegram
     TELEGRAM_BOT_TOKEN: str = ''
     TELEGRAM_CHAT_ID: int = 0
+
+    # Logging
     LOG_LEVEL: Literal['DEBUG', 'INFO', 'WARNING', 'ERROR'] = 'INFO'
     LOG_FORMAT: Literal['text', 'json'] = 'text'
 

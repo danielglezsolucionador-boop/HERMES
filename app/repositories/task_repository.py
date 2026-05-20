@@ -6,6 +6,7 @@ Operaciones: create, get, list, update, delete.
 
 import logging
 import uuid
+from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID
 
@@ -14,7 +15,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.task import Task
-from app.schemas.task import TaskCreate, TaskUpdate
+from app.schemas.task import TaskCreate, TaskStatus, TaskUpdate
 
 logger = logging.getLogger(__name__)
 
@@ -31,15 +32,17 @@ class TaskRepository:
         try:
             task = Task(
                 id=uuid.uuid4(),
-                name=data.name or "task",
+                title=data.title,
+                description=data.description,
+                phase=data.phase,
                 payload=data.payload,
-                status="pending",
+                status=TaskStatus.pending.value,
                 result=None,
                 error=None,
             )
             self.session.add(task)
+            await self.session.flush()
             await self.session.commit()
-            await self.session.refresh(task)
             logger.info("Task creada: id=%s status=%s", task.id, task.status)
             return task
         except SQLAlchemyError as exc:
@@ -122,6 +125,8 @@ class TaskRepository:
         try:
             # Construir solo los campos que vienen en el body
             values = data.model_dump(exclude_none=True)
+            if "status" in values:
+                values["status"] = values["status"].value
             if not values:
                 logger.debug("update_task sin cambios: id=%s", task_id)
                 return await self.get_task(task_id)
@@ -142,9 +147,72 @@ class TaskRepository:
             logger.error("Error al actualizar task id=%s: %s", task_id, exc)
             raise
 
+    async def update_task_status(
+        self, task_id: UUID, status: TaskStatus | str
+    ) -> Optional[Task]:
+        """
+        Actualiza solo el estado operacional de una task.
+        Retorna task actualizada o None si no existe.
+        """
+        status_value = status.value if isinstance(status, TaskStatus) else status
+        try:
+            await self.session.execute(
+                update(Task).where(Task.id == task_id).values(status=status_value)
+            )
+            await self.session.commit()
+
+            task = await self.get_task(task_id)
+            if task:
+                logger.info("Task status actualizado: id=%s status=%s", task_id, status_value)
+            return task
+        except SQLAlchemyError as exc:
+            await self.session.rollback()
+            logger.error("Error al actualizar status task id=%s: %s", task_id, exc)
+            raise
+
     # ─────────────────────────────────────────────
+    # RETRY
+    # ─────────────────────────────────────────────
+    async def retry_task(self, task_id: UUID) -> tuple[Optional[Task], str | None]:
+        """
+        Requeue a failed task if it has retries available.
+        Returns (task, error_code). error_code is None when retry was accepted.
+        """
+        try:
+            task = await self.get_task(task_id)
+            if task is None:
+                return None, "not_found"
+            if task.status != TaskStatus.failed.value:
+                return task, "not_failed"
+            if task.retry_count >= task.max_retries:
+                return task, "max_retries_reached"
+
+            values = {
+                "status": TaskStatus.pending.value,
+                "retry_count": task.retry_count + 1,
+                "last_retry_at": datetime.now(timezone.utc),
+                "error": None,
+                "result": None,
+                "started_at": None,
+                "completed_at": None,
+            }
+            await self.session.execute(
+                update(Task).where(Task.id == task_id).values(**values)
+            )
+            await self.session.commit()
+            task = await self.get_task(task_id)
+            logger.info(
+                "Task reintento solicitado: id=%s retry_count=%s",
+                task_id,
+                task.retry_count if task else None,
+            )
+            return task, None
+        except SQLAlchemyError as exc:
+            await self.session.rollback()
+            logger.error("Error al reintentar task id=%s: %s", task_id, exc)
+            raise
+
     # DELETE
-    # ─────────────────────────────────────────────
     async def delete_task(self, task_id: UUID) -> bool:
         """
         Elimina la task. Retorna True si existía, False si no.
