@@ -1859,6 +1859,43 @@ class RuntimeStatus:
         self.multi_step_execution_control_reasons: list[str] = []
         self.multi_step_execution_control_last_error: str | None = None
         self.multi_step_execution_control_metadata: dict = {}
+        self.last_human_checkpoint_control_at: datetime | None = None
+        self.human_checkpoint_control_iteration = 0
+        self.human_checkpoint_control_status = "stopped"
+        self.human_checkpoints_waiting = 0
+        self.human_checkpoints_approved = 0
+        self.human_checkpoints_blocked = 0
+        self.human_checkpoints_changes_requested = 0
+        self.human_checkpoints_escalated = 0
+        self.human_checkpoint_control_errors = 0
+        self.human_checkpoint_control_id: str | None = None
+        self.human_checkpoint_id: str | None = None
+        self.human_checkpoint_workflow_id: str | None = None
+        self.human_checkpoint_approval_status: str | None = None
+        self.human_checkpoint_execution_status: str | None = None
+        self.human_checkpoint_governance_status: str | None = None
+        self.human_checkpoint_continuation_status: str | None = None
+        self.human_checkpoint_authority_status: str | None = None
+        self.human_checkpoint_detected = False
+        self.human_checkpoint_execution_paused = False
+        self.human_checkpoint_continuation_allowed = False
+        self.human_checkpoint_approval_legitimate = False
+        self.human_checkpoint_governance_alignment_valid = False
+        self.human_checkpoint_execution_continuity_valid = False
+        self.human_checkpoint_runtime_integrity_valid = False
+        self.human_checkpoint_workflow_consistency_valid = False
+        self.human_checkpoint_operational_stability_valid = False
+        self.human_checkpoint_authority_preserved = False
+        self.human_checkpoint_workflow_integrity_preserved = False
+        self.human_checkpoint_traceability_preserved = False
+        self.human_checkpoint_approval_conditions: list[str] = []
+        self.human_checkpoint_blocking_conditions: list[str] = []
+        self.human_checkpoint_visibility_payload: dict = {}
+        self.human_checkpoint_lifecycle: list[dict] = []
+        self.human_checkpoint_control_duration_ms = 0
+        self.human_checkpoint_control_reasons: list[str] = []
+        self.human_checkpoint_control_last_error: str | None = None
+        self.human_checkpoint_control_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -6909,6 +6946,95 @@ class RuntimeStatus:
         else:
             self.multi_step_execution_control_errors += 1
 
+    def mark_human_checkpoint_control_result(self, result: dict) -> None:
+        self.last_human_checkpoint_control_at = datetime.now(timezone.utc)
+        self.human_checkpoint_control_iteration += 1
+        self.human_checkpoint_control_status = result.get("status") or "unknown"
+        self.human_checkpoint_control_id = result.get("control_id")
+        self.human_checkpoint_id = result.get("checkpoint_id")
+        self.human_checkpoint_workflow_id = result.get("workflow_id")
+        self.human_checkpoint_approval_status = result.get("approval_status")
+        self.human_checkpoint_execution_status = result.get("execution_status")
+        self.human_checkpoint_governance_status = result.get(
+            "governance_status"
+        )
+        self.human_checkpoint_continuation_status = result.get(
+            "continuation_status"
+        )
+        self.human_checkpoint_authority_status = result.get("authority_status")
+        self.human_checkpoint_detected = bool(result.get("checkpoint_detected"))
+        self.human_checkpoint_execution_paused = bool(
+            result.get("execution_paused")
+        )
+        self.human_checkpoint_continuation_allowed = bool(
+            result.get("continuation_allowed")
+        )
+        self.human_checkpoint_approval_legitimate = bool(
+            result.get("approval_legitimate")
+        )
+        self.human_checkpoint_governance_alignment_valid = bool(
+            result.get("governance_alignment_valid")
+        )
+        self.human_checkpoint_execution_continuity_valid = bool(
+            result.get("execution_continuity_valid")
+        )
+        self.human_checkpoint_runtime_integrity_valid = bool(
+            result.get("runtime_integrity_valid")
+        )
+        self.human_checkpoint_workflow_consistency_valid = bool(
+            result.get("workflow_consistency_valid")
+        )
+        self.human_checkpoint_operational_stability_valid = bool(
+            result.get("operational_stability_valid")
+        )
+        self.human_checkpoint_authority_preserved = bool(
+            result.get("human_authority_preserved")
+        )
+        self.human_checkpoint_workflow_integrity_preserved = bool(
+            result.get("workflow_integrity_preserved")
+        )
+        self.human_checkpoint_traceability_preserved = bool(
+            result.get("execution_traceability_preserved")
+        )
+        self.human_checkpoint_approval_conditions = [
+            str(item) for item in (result.get("approval_conditions") or [])
+        ]
+        self.human_checkpoint_blocking_conditions = [
+            str(item) for item in (result.get("blocking_conditions") or [])
+        ]
+        self.human_checkpoint_visibility_payload = dict(
+            result.get("human_visibility_payload") or {}
+        )
+        self.human_checkpoint_lifecycle = [
+            dict(entry)
+            for entry in (result.get("checkpoint_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.human_checkpoint_control_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.human_checkpoint_control_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.human_checkpoint_control_last_error = result.get("error")
+        self.human_checkpoint_control_metadata = dict(
+            result.get("metadata") or {}
+        )
+
+        if self.human_checkpoint_control_status == "waiting":
+            self.human_checkpoints_waiting += 1
+        elif self.human_checkpoint_control_status == "approved":
+            self.human_checkpoints_approved += 1
+        elif self.human_checkpoint_control_status == "blocked":
+            self.human_checkpoints_blocked += 1
+        elif self.human_checkpoint_control_status == "changes_requested":
+            self.human_checkpoints_changes_requested += 1
+        elif self.human_checkpoint_control_status == "escalated":
+            self.human_checkpoints_escalated += 1
+        else:
+            self.human_checkpoint_control_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -10636,6 +10762,86 @@ class RuntimeStatus:
             "metadata": dict(self.multi_step_execution_control_metadata),
         }
 
+    def human_checkpoint_control_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_human_checkpoint_control_at": fmt(
+                self.last_human_checkpoint_control_at
+            ),
+            "human_checkpoint_control_iteration": (
+                self.human_checkpoint_control_iteration
+            ),
+            "human_checkpoint_control_status": (
+                self.human_checkpoint_control_status
+            ),
+            "human_checkpoints_waiting": self.human_checkpoints_waiting,
+            "human_checkpoints_approved": self.human_checkpoints_approved,
+            "human_checkpoints_blocked": self.human_checkpoints_blocked,
+            "human_checkpoints_changes_requested": (
+                self.human_checkpoints_changes_requested
+            ),
+            "human_checkpoints_escalated": self.human_checkpoints_escalated,
+            "human_checkpoint_control_errors": (
+                self.human_checkpoint_control_errors
+            ),
+            "control_id": self.human_checkpoint_control_id,
+            "checkpoint_id": self.human_checkpoint_id,
+            "workflow_id": self.human_checkpoint_workflow_id,
+            "approval_status": self.human_checkpoint_approval_status,
+            "execution_status": self.human_checkpoint_execution_status,
+            "governance_status": self.human_checkpoint_governance_status,
+            "continuation_status": self.human_checkpoint_continuation_status,
+            "authority_status": self.human_checkpoint_authority_status,
+            "checkpoint_detected": self.human_checkpoint_detected,
+            "execution_paused": self.human_checkpoint_execution_paused,
+            "continuation_allowed": (
+                self.human_checkpoint_continuation_allowed
+            ),
+            "approval_legitimate": self.human_checkpoint_approval_legitimate,
+            "governance_alignment_valid": (
+                self.human_checkpoint_governance_alignment_valid
+            ),
+            "execution_continuity_valid": (
+                self.human_checkpoint_execution_continuity_valid
+            ),
+            "runtime_integrity_valid": (
+                self.human_checkpoint_runtime_integrity_valid
+            ),
+            "workflow_consistency_valid": (
+                self.human_checkpoint_workflow_consistency_valid
+            ),
+            "operational_stability_valid": (
+                self.human_checkpoint_operational_stability_valid
+            ),
+            "human_authority_preserved": (
+                self.human_checkpoint_authority_preserved
+            ),
+            "workflow_integrity_preserved": (
+                self.human_checkpoint_workflow_integrity_preserved
+            ),
+            "execution_traceability_preserved": (
+                self.human_checkpoint_traceability_preserved
+            ),
+            "approval_conditions": list(
+                self.human_checkpoint_approval_conditions
+            ),
+            "blocking_conditions": list(
+                self.human_checkpoint_blocking_conditions
+            ),
+            "human_visibility_payload": dict(
+                self.human_checkpoint_visibility_payload
+            ),
+            "checkpoint_lifecycle": [
+                dict(entry) for entry in self.human_checkpoint_lifecycle
+            ],
+            "duration_ms": self.human_checkpoint_control_duration_ms,
+            "reasons": list(self.human_checkpoint_control_reasons),
+            "last_error": self.human_checkpoint_control_last_error,
+            "metadata": dict(self.human_checkpoint_control_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -10893,6 +11099,9 @@ class RuntimeStatus:
             ),
             "multi_step_execution_control": (
                 self.multi_step_execution_control_metrics()
+            ),
+            "human_checkpoint_control": (
+                self.human_checkpoint_control_metrics()
             ),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),

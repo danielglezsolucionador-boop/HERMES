@@ -150,6 +150,9 @@ async def runtime_status(session: AsyncSession = Depends(get_session)):
         multi_step_execution_control_metrics = (
             runner_runtime_status.multi_step_execution_control_metrics()
         )
+        human_checkpoint_control_metrics = (
+            runner_runtime_status.human_checkpoint_control_metrics()
+        )
         response_ingestion_metrics = runner_runtime_status.response_ingestion_metrics()
         response_validation_metrics = runner_runtime_status.response_validation_metrics()
         response_safety_metrics = runner_runtime_status.response_safety_metrics()
@@ -236,6 +239,9 @@ async def runtime_status(session: AsyncSession = Depends(get_session)):
             ),
             "multi_step_execution_control": (
                 multi_step_execution_control_metrics
+            ),
+            "human_checkpoint_control": (
+                human_checkpoint_control_metrics
             ),
             "response_ingestion": response_ingestion_metrics,
             "response_validation": response_validation_metrics,
