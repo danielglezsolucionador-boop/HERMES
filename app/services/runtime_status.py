@@ -1765,6 +1765,31 @@ class RuntimeStatus:
         self.dependency_context_builder_reasons: list[str] = []
         self.dependency_context_builder_last_error: str | None = None
         self.dependency_context_builder_metadata: dict = {}
+        self.last_knowledge_core_validation_at: datetime | None = None
+        self.knowledge_core_validation_iteration = 0
+        self.knowledge_core_validation_status = "stopped"
+        self.knowledge_core_validation_validated = 0
+        self.knowledge_core_validation_blocked = 0
+        self.knowledge_core_validation_errors = 0
+        self.knowledge_validation_id: str | None = None
+        self.knowledge_roadmap_valid = False
+        self.knowledge_phase_valid = False
+        self.knowledge_validation_standards_valid = False
+        self.knowledge_validation_dependency_valid = False
+        self.knowledge_validation_governance_valid = False
+        self.knowledge_execution_continuity_valid = False
+        self.knowledge_validation_architecture_preserved = False
+        self.knowledge_validation_operational_continuity_preserved = False
+        self.knowledge_execution_consistency_preserved = False
+        self.knowledge_context_approved = False
+        self.knowledge_validation_blocking_conditions: list[str] = []
+        self.knowledge_detected_inconsistencies: list[str] = []
+        self.knowledge_validation_report: dict = {}
+        self.knowledge_validation_lifecycle: list[dict] = []
+        self.knowledge_core_validation_duration_ms = 0
+        self.knowledge_core_validation_reasons: list[str] = []
+        self.knowledge_core_validation_last_error: str | None = None
+        self.knowledge_core_validation_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -6569,6 +6594,72 @@ class RuntimeStatus:
         else:
             self.dependency_context_builder_errors += 1
 
+    def mark_knowledge_core_validation_result(self, result: dict) -> None:
+        self.last_knowledge_core_validation_at = datetime.now(timezone.utc)
+        self.knowledge_core_validation_iteration += 1
+        self.knowledge_core_validation_status = (
+            result.get("status") or "unknown"
+        )
+        self.knowledge_validation_id = result.get("validation_id")
+        self.knowledge_roadmap_valid = bool(result.get("roadmap_valid"))
+        self.knowledge_phase_valid = bool(result.get("phase_valid"))
+        self.knowledge_validation_standards_valid = bool(
+            result.get("standards_valid")
+        )
+        self.knowledge_validation_dependency_valid = bool(
+            result.get("dependency_valid")
+        )
+        self.knowledge_validation_governance_valid = bool(
+            result.get("governance_valid")
+        )
+        self.knowledge_execution_continuity_valid = bool(
+            result.get("execution_continuity_valid")
+        )
+        self.knowledge_validation_architecture_preserved = bool(
+            result.get("architecture_consistency_preserved")
+        )
+        self.knowledge_validation_operational_continuity_preserved = bool(
+            result.get("operational_continuity_preserved")
+        )
+        self.knowledge_execution_consistency_preserved = bool(
+            result.get("execution_consistency_preserved")
+        )
+        self.knowledge_context_approved = bool(
+            result.get("context_approved")
+        )
+        self.knowledge_validation_blocking_conditions = [
+            str(item) for item in (result.get("blocking_conditions") or [])
+        ]
+        self.knowledge_detected_inconsistencies = [
+            str(item) for item in (result.get("detected_inconsistencies") or [])
+        ]
+        self.knowledge_validation_report = dict(
+            result.get("validation_report") or {}
+        )
+        self.knowledge_validation_lifecycle = [
+            dict(entry)
+            for entry in (result.get("validation_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.knowledge_core_validation_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.knowledge_core_validation_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.knowledge_core_validation_last_error = result.get("error")
+        self.knowledge_core_validation_metadata = dict(
+            result.get("metadata") or {}
+        )
+
+        if self.knowledge_core_validation_status == "validated":
+            self.knowledge_core_validation_validated += 1
+        elif self.knowledge_core_validation_status == "blocked":
+            self.knowledge_core_validation_blocked += 1
+        else:
+            self.knowledge_core_validation_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -10095,6 +10186,64 @@ class RuntimeStatus:
             "metadata": dict(self.dependency_context_builder_metadata),
         }
 
+    def knowledge_core_validation_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_knowledge_core_validation_at": fmt(
+                self.last_knowledge_core_validation_at
+            ),
+            "knowledge_core_validation_iteration": (
+                self.knowledge_core_validation_iteration
+            ),
+            "knowledge_core_validation_status": (
+                self.knowledge_core_validation_status
+            ),
+            "knowledge_core_validation_validated": (
+                self.knowledge_core_validation_validated
+            ),
+            "knowledge_core_validation_blocked": (
+                self.knowledge_core_validation_blocked
+            ),
+            "knowledge_core_validation_errors": (
+                self.knowledge_core_validation_errors
+            ),
+            "validation_id": self.knowledge_validation_id,
+            "roadmap_valid": self.knowledge_roadmap_valid,
+            "phase_valid": self.knowledge_phase_valid,
+            "standards_valid": self.knowledge_validation_standards_valid,
+            "dependency_valid": self.knowledge_validation_dependency_valid,
+            "governance_valid": self.knowledge_validation_governance_valid,
+            "execution_continuity_valid": (
+                self.knowledge_execution_continuity_valid
+            ),
+            "architecture_consistency_preserved": (
+                self.knowledge_validation_architecture_preserved
+            ),
+            "operational_continuity_preserved": (
+                self.knowledge_validation_operational_continuity_preserved
+            ),
+            "execution_consistency_preserved": (
+                self.knowledge_execution_consistency_preserved
+            ),
+            "context_approved": self.knowledge_context_approved,
+            "blocking_conditions": list(
+                self.knowledge_validation_blocking_conditions
+            ),
+            "detected_inconsistencies": list(
+                self.knowledge_detected_inconsistencies
+            ),
+            "validation_report": dict(self.knowledge_validation_report),
+            "validation_lifecycle": [
+                dict(entry) for entry in self.knowledge_validation_lifecycle
+            ],
+            "duration_ms": self.knowledge_core_validation_duration_ms,
+            "reasons": list(self.knowledge_core_validation_reasons),
+            "last_error": self.knowledge_core_validation_last_error,
+            "metadata": dict(self.knowledge_core_validation_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -10343,6 +10492,9 @@ class RuntimeStatus:
             ),
             "dependency_context_builder": (
                 self.dependency_context_builder_metrics()
+            ),
+            "knowledge_core_validation": (
+                self.knowledge_core_validation_metrics()
             ),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
