@@ -817,6 +817,50 @@ class RuntimeStatus:
         self.execution_resume_reasons: list[str] = []
         self.execution_resume_last_error: str | None = None
         self.execution_resume_metadata: dict = {}
+        self.last_workflow_chaining_at: datetime | None = None
+        self.workflow_chaining_iteration = 0
+        self.workflow_chaining_status = "stopped"
+        self.workflow_chains_activated = 0
+        self.workflow_chains_blocked = 0
+        self.workflow_chains_completed = 0
+        self.workflow_chaining_errors = 0
+        self.last_chaining_id: str | None = None
+        self.chaining_current_workflow: str | None = None
+        self.chaining_next_workflow: str | None = None
+        self.chaining_current_phase: str | None = None
+        self.chaining_current_subphase: str | None = None
+        self.chaining_type: str | None = None
+        self.chaining_governance_status: str | None = None
+        self.chaining_audit_status: str | None = None
+        self.chaining_execution_status: str | None = None
+        self.chaining_dependency_status: str | None = None
+        self.chaining_continuation_status: str | None = None
+        self.chaining_roadmap_loaded = False
+        self.chaining_current_workflow_completed = False
+        self.chaining_dependencies_satisfied = False
+        self.chaining_governance_satisfied = False
+        self.chaining_audit_satisfied = False
+        self.chaining_execution_stable = False
+        self.chaining_runtime_safe = False
+        self.chaining_progression_allowed = False
+        self.chaining_workflow_activation = False
+        self.chaining_context_preserved = False
+        self.chaining_traceability_preserved = False
+        self.chaining_roadmap: list[str] = []
+        self.chaining_completed_workflows: list[str] = []
+        self.chaining_required_dependencies: list[str] = []
+        self.chaining_missing_dependencies: list[str] = []
+        self.chaining_next_workflow_context: dict = {}
+        self.chaining_execution_context: dict = {}
+        self.chaining_lifecycle_history: list[dict] = []
+        self.chaining_roadmap_history: list[dict] = []
+        self.chaining_governance_history: list[dict] = []
+        self.chaining_audit_history: list[dict] = []
+        self.chaining_lifecycle: list[dict] = []
+        self.workflow_chaining_duration_ms = 0
+        self.workflow_chaining_reasons: list[str] = []
+        self.workflow_chaining_last_error: str | None = None
+        self.workflow_chaining_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -3237,6 +3281,106 @@ class RuntimeStatus:
         else:
             self.execution_resume_errors += 1
 
+    def mark_workflow_chaining_result(self, result: dict) -> None:
+        self.last_workflow_chaining_at = datetime.now(timezone.utc)
+        self.workflow_chaining_iteration += 1
+        self.workflow_chaining_status = result.get("status") or "unknown"
+        self.last_chaining_id = result.get("chaining_id")
+        self.chaining_current_workflow = result.get("current_workflow")
+        self.chaining_next_workflow = result.get("next_workflow")
+        self.chaining_current_phase = result.get("current_phase")
+        self.chaining_current_subphase = result.get("current_subphase")
+        self.chaining_type = result.get("chaining_type")
+        self.chaining_governance_status = result.get("governance_status")
+        self.chaining_audit_status = result.get("audit_status")
+        self.chaining_execution_status = result.get("execution_status")
+        self.chaining_dependency_status = result.get("dependency_status")
+        self.chaining_continuation_status = result.get("continuation_status")
+        self.chaining_roadmap_loaded = bool(result.get("roadmap_loaded"))
+        self.chaining_current_workflow_completed = bool(
+            result.get("current_workflow_completed")
+        )
+        self.chaining_dependencies_satisfied = bool(
+            result.get("dependencies_satisfied")
+        )
+        self.chaining_governance_satisfied = bool(
+            result.get("governance_satisfied")
+        )
+        self.chaining_audit_satisfied = bool(result.get("audit_satisfied"))
+        self.chaining_execution_stable = bool(result.get("execution_stable"))
+        self.chaining_runtime_safe = bool(result.get("runtime_safe"))
+        self.chaining_progression_allowed = bool(
+            result.get("progression_allowed")
+        )
+        self.chaining_workflow_activation = bool(
+            result.get("workflow_activation")
+        )
+        self.chaining_context_preserved = bool(result.get("context_preserved"))
+        self.chaining_traceability_preserved = bool(
+            result.get("traceability_preserved")
+        )
+        self.chaining_roadmap = [
+            str(item) for item in (result.get("roadmap") or [])
+        ]
+        self.chaining_completed_workflows = [
+            str(item) for item in (result.get("completed_workflows") or [])
+        ]
+        self.chaining_required_dependencies = [
+            str(item) for item in (result.get("required_dependencies") or [])
+        ]
+        self.chaining_missing_dependencies = [
+            str(item) for item in (result.get("missing_dependencies") or [])
+        ]
+        self.chaining_next_workflow_context = dict(
+            result.get("next_workflow_context") or {}
+        )
+        self.chaining_execution_context = dict(
+            result.get("execution_context") or {}
+        )
+        self.chaining_lifecycle_history = [
+            dict(entry)
+            for entry in (result.get("lifecycle_history") or [])
+            if isinstance(entry, dict)
+        ]
+        self.chaining_roadmap_history = [
+            dict(entry)
+            for entry in (result.get("roadmap_history") or [])
+            if isinstance(entry, dict)
+        ]
+        self.chaining_governance_history = [
+            dict(entry)
+            for entry in (result.get("governance_history") or [])
+            if isinstance(entry, dict)
+        ]
+        self.chaining_audit_history = [
+            dict(entry)
+            for entry in (result.get("audit_history") or [])
+            if isinstance(entry, dict)
+        ]
+        self.chaining_lifecycle = [
+            dict(entry)
+            for entry in (result.get("chaining_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.workflow_chaining_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.workflow_chaining_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.workflow_chaining_last_error = result.get("error")
+        self.workflow_chaining_metadata = dict(result.get("metadata") or {})
+
+        if self.workflow_chaining_status == "activated":
+            self.workflow_chains_activated += 1
+        elif self.workflow_chaining_status == "blocked":
+            self.workflow_chains_blocked += 1
+        elif self.workflow_chaining_status == "completed":
+            self.workflow_chains_completed += 1
+        else:
+            self.workflow_chaining_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -4828,6 +4972,69 @@ class RuntimeStatus:
             "metadata": dict(self.execution_resume_metadata),
         }
 
+    def workflow_chaining_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_workflow_chaining_at": fmt(self.last_workflow_chaining_at),
+            "workflow_chaining_iteration": self.workflow_chaining_iteration,
+            "workflow_chaining_status": self.workflow_chaining_status,
+            "workflow_chains_activated": self.workflow_chains_activated,
+            "workflow_chains_blocked": self.workflow_chains_blocked,
+            "workflow_chains_completed": self.workflow_chains_completed,
+            "workflow_chaining_errors": self.workflow_chaining_errors,
+            "chaining_id": self.last_chaining_id,
+            "current_workflow": self.chaining_current_workflow,
+            "next_workflow": self.chaining_next_workflow,
+            "current_phase": self.chaining_current_phase,
+            "current_subphase": self.chaining_current_subphase,
+            "chaining_type": self.chaining_type,
+            "governance_status": self.chaining_governance_status,
+            "audit_status": self.chaining_audit_status,
+            "execution_status": self.chaining_execution_status,
+            "dependency_status": self.chaining_dependency_status,
+            "continuation_status": self.chaining_continuation_status,
+            "roadmap_loaded": self.chaining_roadmap_loaded,
+            "current_workflow_completed": (
+                self.chaining_current_workflow_completed
+            ),
+            "dependencies_satisfied": self.chaining_dependencies_satisfied,
+            "governance_satisfied": self.chaining_governance_satisfied,
+            "audit_satisfied": self.chaining_audit_satisfied,
+            "execution_stable": self.chaining_execution_stable,
+            "runtime_safe": self.chaining_runtime_safe,
+            "progression_allowed": self.chaining_progression_allowed,
+            "workflow_activation": self.chaining_workflow_activation,
+            "context_preserved": self.chaining_context_preserved,
+            "traceability_preserved": self.chaining_traceability_preserved,
+            "roadmap": list(self.chaining_roadmap),
+            "completed_workflows": list(self.chaining_completed_workflows),
+            "required_dependencies": list(self.chaining_required_dependencies),
+            "missing_dependencies": list(self.chaining_missing_dependencies),
+            "next_workflow_context": dict(self.chaining_next_workflow_context),
+            "execution_context": dict(self.chaining_execution_context),
+            "lifecycle_history": [
+                dict(entry) for entry in self.chaining_lifecycle_history
+            ],
+            "roadmap_history": [
+                dict(entry) for entry in self.chaining_roadmap_history
+            ],
+            "governance_history": [
+                dict(entry) for entry in self.chaining_governance_history
+            ],
+            "audit_history": [
+                dict(entry) for entry in self.chaining_audit_history
+            ],
+            "chaining_lifecycle": [
+                dict(entry) for entry in self.chaining_lifecycle
+            ],
+            "duration_ms": self.workflow_chaining_duration_ms,
+            "reasons": list(self.workflow_chaining_reasons),
+            "last_error": self.workflow_chaining_last_error,
+            "metadata": dict(self.workflow_chaining_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -5032,6 +5239,7 @@ class RuntimeStatus:
             "phase_continuation": self.phase_continuation_metrics(),
             "checkpoint_recovery": self.checkpoint_recovery_metrics(),
             "execution_resume": self.execution_resume_metrics(),
+            "workflow_chaining": self.workflow_chaining_metrics(),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
             "response_safety": self.response_safety_metrics(),
