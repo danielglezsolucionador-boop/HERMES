@@ -1706,6 +1706,35 @@ class RuntimeStatus:
         self.phases_roadmap_reader_reasons: list[str] = []
         self.phases_roadmap_reader_last_error: str | None = None
         self.phases_roadmap_reader_metadata: dict = {}
+        self.last_apps_standards_reader_at: datetime | None = None
+        self.apps_standards_reader_iteration = 0
+        self.apps_standards_reader_status = "stopped"
+        self.apps_standards_reader_interpreted = 0
+        self.apps_standards_reader_blocked = 0
+        self.apps_standards_reader_errors = 0
+        self.apps_standards_read_id: str | None = None
+        self.apps_standards_sources: list[str] = []
+        self.apps_systems_detected: list[dict] = []
+        self.apps_organizational_roles: list[str] = []
+        self.apps_technical_standards: list[dict] = []
+        self.apps_architecture_rules: list[str] = []
+        self.apps_operational_responsibilities: list[str] = []
+        self.apps_governance_context: dict = {}
+        self.apps_execution_compatibility: dict = {}
+        self.apps_standards_legitimacy_valid = False
+        self.apps_architecture_compatibility_valid = False
+        self.apps_governance_alignment_valid = False
+        self.apps_execution_permissions_valid = False
+        self.apps_ecosystem_consistency_valid = False
+        self.apps_architecture_integrity_preserved = False
+        self.apps_operational_continuity_preserved = False
+        self.apps_execution_traceability_preserved = False
+        self.apps_human_visibility_payload: dict = {}
+        self.apps_standards_reader_lifecycle: list[dict] = []
+        self.apps_standards_reader_duration_ms = 0
+        self.apps_standards_reader_reasons: list[str] = []
+        self.apps_standards_reader_last_error: str | None = None
+        self.apps_standards_reader_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -6336,6 +6365,91 @@ class RuntimeStatus:
         else:
             self.phases_roadmap_reader_errors += 1
 
+    def mark_apps_standards_reader_result(self, result: dict) -> None:
+        self.last_apps_standards_reader_at = datetime.now(timezone.utc)
+        self.apps_standards_reader_iteration += 1
+        self.apps_standards_reader_status = result.get("status") or "unknown"
+        self.apps_standards_read_id = result.get("read_id")
+        self.apps_standards_sources = [
+            str(item) for item in (result.get("standards_sources") or [])
+        ]
+        self.apps_systems_detected = [
+            dict(item)
+            for item in (result.get("systems_detected") or [])
+            if isinstance(item, dict)
+        ]
+        self.apps_organizational_roles = [
+            str(item) for item in (result.get("organizational_roles") or [])
+        ]
+        self.apps_technical_standards = [
+            dict(item)
+            for item in (result.get("technical_standards") or [])
+            if isinstance(item, dict)
+        ]
+        self.apps_architecture_rules = [
+            str(item) for item in (result.get("architecture_rules") or [])
+        ]
+        self.apps_operational_responsibilities = [
+            str(item)
+            for item in (result.get("operational_responsibilities") or [])
+        ]
+        self.apps_governance_context = dict(
+            result.get("governance_context") or {}
+        )
+        self.apps_execution_compatibility = dict(
+            result.get("execution_compatibility") or {}
+        )
+        self.apps_standards_legitimacy_valid = bool(
+            result.get("standards_legitimacy_valid")
+        )
+        self.apps_architecture_compatibility_valid = bool(
+            result.get("architecture_compatibility_valid")
+        )
+        self.apps_governance_alignment_valid = bool(
+            result.get("governance_alignment_valid")
+        )
+        self.apps_execution_permissions_valid = bool(
+            result.get("execution_permissions_valid")
+        )
+        self.apps_ecosystem_consistency_valid = bool(
+            result.get("ecosystem_consistency_valid")
+        )
+        self.apps_architecture_integrity_preserved = bool(
+            result.get("architecture_integrity_preserved")
+        )
+        self.apps_operational_continuity_preserved = bool(
+            result.get("operational_continuity_preserved")
+        )
+        self.apps_execution_traceability_preserved = bool(
+            result.get("execution_traceability_preserved")
+        )
+        self.apps_human_visibility_payload = dict(
+            result.get("human_visibility_payload") or {}
+        )
+        self.apps_standards_reader_lifecycle = [
+            dict(entry)
+            for entry in (result.get("reader_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.apps_standards_reader_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.apps_standards_reader_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.apps_standards_reader_last_error = result.get("error")
+        self.apps_standards_reader_metadata = dict(
+            result.get("metadata") or {}
+        )
+
+        if self.apps_standards_reader_status == "interpreted":
+            self.apps_standards_reader_interpreted += 1
+        elif self.apps_standards_reader_status == "blocked":
+            self.apps_standards_reader_blocked += 1
+        else:
+            self.apps_standards_reader_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -9706,6 +9820,82 @@ class RuntimeStatus:
             "metadata": dict(self.phases_roadmap_reader_metadata),
         }
 
+    def apps_standards_reader_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_apps_standards_reader_at": fmt(
+                self.last_apps_standards_reader_at
+            ),
+            "apps_standards_reader_iteration": (
+                self.apps_standards_reader_iteration
+            ),
+            "apps_standards_reader_status": (
+                self.apps_standards_reader_status
+            ),
+            "apps_standards_reader_interpreted": (
+                self.apps_standards_reader_interpreted
+            ),
+            "apps_standards_reader_blocked": (
+                self.apps_standards_reader_blocked
+            ),
+            "apps_standards_reader_errors": (
+                self.apps_standards_reader_errors
+            ),
+            "read_id": self.apps_standards_read_id,
+            "standards_sources": list(self.apps_standards_sources),
+            "systems_detected": [
+                dict(item) for item in self.apps_systems_detected
+            ],
+            "organizational_roles": list(self.apps_organizational_roles),
+            "technical_standards": [
+                dict(item) for item in self.apps_technical_standards
+            ],
+            "architecture_rules": list(self.apps_architecture_rules),
+            "operational_responsibilities": list(
+                self.apps_operational_responsibilities
+            ),
+            "governance_context": dict(self.apps_governance_context),
+            "execution_compatibility": dict(
+                self.apps_execution_compatibility
+            ),
+            "standards_legitimacy_valid": (
+                self.apps_standards_legitimacy_valid
+            ),
+            "architecture_compatibility_valid": (
+                self.apps_architecture_compatibility_valid
+            ),
+            "governance_alignment_valid": (
+                self.apps_governance_alignment_valid
+            ),
+            "execution_permissions_valid": (
+                self.apps_execution_permissions_valid
+            ),
+            "ecosystem_consistency_valid": (
+                self.apps_ecosystem_consistency_valid
+            ),
+            "architecture_integrity_preserved": (
+                self.apps_architecture_integrity_preserved
+            ),
+            "operational_continuity_preserved": (
+                self.apps_operational_continuity_preserved
+            ),
+            "execution_traceability_preserved": (
+                self.apps_execution_traceability_preserved
+            ),
+            "human_visibility_payload": dict(
+                self.apps_human_visibility_payload
+            ),
+            "reader_lifecycle": [
+                dict(entry) for entry in self.apps_standards_reader_lifecycle
+            ],
+            "duration_ms": self.apps_standards_reader_duration_ms,
+            "reasons": list(self.apps_standards_reader_reasons),
+            "last_error": self.apps_standards_reader_last_error,
+            "metadata": dict(self.apps_standards_reader_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -9948,6 +10138,9 @@ class RuntimeStatus:
             "knowledge_core_reader": self.knowledge_core_reader_metrics(),
             "phases_roadmap_reader": (
                 self.phases_roadmap_reader_metrics()
+            ),
+            "apps_standards_reader": (
+                self.apps_standards_reader_metrics()
             ),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
