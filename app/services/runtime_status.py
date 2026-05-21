@@ -631,6 +631,40 @@ class RuntimeStatus:
         self.audit_response_reasons: list[str] = []
         self.audit_response_last_error: str | None = None
         self.audit_response_metadata: dict = {}
+        self.last_approval_gate_at: datetime | None = None
+        self.approval_gate_iteration = 0
+        self.approval_gate_status = "stopped"
+        self.approval_requests_pending = 0
+        self.approval_decisions_approved = 0
+        self.approval_decisions_rejected = 0
+        self.approval_decisions_needs_changes = 0
+        self.approval_decisions_escalated = 0
+        self.approval_gate_errors = 0
+        self.last_approval_id: str | None = None
+        self.approval_gate_execution_id: str | None = None
+        self.approval_gate_task_id: str | None = None
+        self.approval_gate_type: str | None = None
+        self.approval_gate_approval_status: str | None = None
+        self.approval_gate_audit_status: str | None = None
+        self.approval_gate_human_decision: str | None = None
+        self.approval_gate_continuation_status: str | None = None
+        self.approval_gate_risk_status: str | None = None
+        self.approval_gate_governance_status: str | None = None
+        self.approval_gate_context_preserved = False
+        self.approval_gate_human_authority_preserved = False
+        self.approval_gate_autonomy_blocked = True
+        self.approval_gate_decided_by: str | None = None
+        self.approval_gate_decision_reason: str = ""
+        self.approval_gate_human_report: dict = {}
+        self.approval_gate_modified_files: list[str] = []
+        self.approval_gate_detected_risks: list[str] = []
+        self.approval_gate_warnings: list[str] = []
+        self.approval_gate_lifecycle: list[dict] = []
+        self.approval_gate_execution_context: dict = {}
+        self.approval_gate_duration_ms = 0
+        self.approval_gate_reasons: list[str] = []
+        self.approval_gate_last_error: str | None = None
+        self.approval_gate_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -2643,6 +2677,76 @@ class RuntimeStatus:
         else:
             self.audit_response_errors += 1
 
+    def mark_approval_gate_result(self, result: dict) -> None:
+        self.last_approval_gate_at = datetime.now(timezone.utc)
+        self.approval_gate_iteration += 1
+        self.approval_gate_status = result.get("status") or "unknown"
+        self.last_approval_id = result.get("approval_id")
+        self.approval_gate_execution_id = result.get("execution_id")
+        self.approval_gate_task_id = result.get("task_id")
+        self.approval_gate_type = result.get("approval_type")
+        self.approval_gate_approval_status = result.get("approval_status")
+        self.approval_gate_audit_status = result.get("audit_status")
+        self.approval_gate_human_decision = result.get("human_decision")
+        self.approval_gate_continuation_status = result.get(
+            "continuation_status"
+        )
+        self.approval_gate_risk_status = result.get("risk_status")
+        self.approval_gate_governance_status = result.get("governance_status")
+        self.approval_gate_context_preserved = bool(
+            result.get("context_preserved")
+        )
+        self.approval_gate_human_authority_preserved = bool(
+            result.get("human_authority_preserved")
+        )
+        self.approval_gate_autonomy_blocked = bool(
+            result.get("autonomy_blocked", True)
+        )
+        self.approval_gate_decided_by = result.get("decided_by")
+        self.approval_gate_decision_reason = str(
+            result.get("decision_reason") or ""
+        )
+        self.approval_gate_human_report = dict(result.get("human_report") or {})
+        self.approval_gate_modified_files = [
+            str(path) for path in (result.get("modified_files") or [])
+        ]
+        self.approval_gate_detected_risks = [
+            str(risk) for risk in (result.get("detected_risks") or [])
+        ]
+        self.approval_gate_warnings = [
+            str(warning) for warning in (result.get("warnings") or [])
+        ]
+        self.approval_gate_lifecycle = [
+            dict(entry)
+            for entry in (result.get("approval_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.approval_gate_execution_context = dict(
+            result.get("execution_context") or {}
+        )
+        self.approval_gate_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.approval_gate_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.approval_gate_last_error = result.get("error")
+        self.approval_gate_metadata = dict(result.get("metadata") or {})
+
+        if self.approval_gate_status == "pending":
+            self.approval_requests_pending += 1
+        elif self.approval_gate_status == "approved":
+            self.approval_decisions_approved += 1
+        elif self.approval_gate_status == "rejected":
+            self.approval_decisions_rejected += 1
+        elif self.approval_gate_status == "needs_changes":
+            self.approval_decisions_needs_changes += 1
+        elif self.approval_gate_status == "escalated":
+            self.approval_decisions_escalated += 1
+        else:
+            self.approval_gate_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -3941,6 +4045,55 @@ class RuntimeStatus:
             "metadata": dict(self.audit_response_metadata),
         }
 
+    def approval_gate_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_approval_gate_at": fmt(self.last_approval_gate_at),
+            "approval_gate_iteration": self.approval_gate_iteration,
+            "approval_gate_status": self.approval_gate_status,
+            "approval_requests_pending": self.approval_requests_pending,
+            "approval_decisions_approved": self.approval_decisions_approved,
+            "approval_decisions_rejected": self.approval_decisions_rejected,
+            "approval_decisions_needs_changes": (
+                self.approval_decisions_needs_changes
+            ),
+            "approval_decisions_escalated": (
+                self.approval_decisions_escalated
+            ),
+            "approval_gate_errors": self.approval_gate_errors,
+            "approval_id": self.last_approval_id,
+            "execution_id": self.approval_gate_execution_id,
+            "task_id": self.approval_gate_task_id,
+            "approval_type": self.approval_gate_type,
+            "approval_status": self.approval_gate_approval_status,
+            "audit_status": self.approval_gate_audit_status,
+            "human_decision": self.approval_gate_human_decision,
+            "continuation_status": self.approval_gate_continuation_status,
+            "risk_status": self.approval_gate_risk_status,
+            "governance_status": self.approval_gate_governance_status,
+            "context_preserved": self.approval_gate_context_preserved,
+            "human_authority_preserved": (
+                self.approval_gate_human_authority_preserved
+            ),
+            "autonomy_blocked": self.approval_gate_autonomy_blocked,
+            "decided_by": self.approval_gate_decided_by,
+            "decision_reason": self.approval_gate_decision_reason,
+            "human_report": dict(self.approval_gate_human_report),
+            "modified_files": list(self.approval_gate_modified_files),
+            "detected_risks": list(self.approval_gate_detected_risks),
+            "warnings": list(self.approval_gate_warnings),
+            "approval_lifecycle": [
+                dict(entry) for entry in self.approval_gate_lifecycle
+            ],
+            "execution_context": dict(self.approval_gate_execution_context),
+            "duration_ms": self.approval_gate_duration_ms,
+            "reasons": list(self.approval_gate_reasons),
+            "last_error": self.approval_gate_last_error,
+            "metadata": dict(self.approval_gate_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -4140,6 +4293,7 @@ class RuntimeStatus:
             "self_validation": self.self_validation_metrics(),
             "audit_request": self.audit_request_metrics(),
             "audit_response": self.audit_response_metrics(),
+            "approval_gate": self.approval_gate_metrics(),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
             "response_safety": self.response_safety_metrics(),
