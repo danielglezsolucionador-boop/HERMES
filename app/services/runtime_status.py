@@ -172,10 +172,15 @@ class RuntimeStatus:
         self.last_execution_session_phase_id: str | None = None
         self.last_execution_session_audit_status: str | None = None
         self.last_execution_session_checkpoint: str | None = None
+        self.last_execution_session_action: str | None = None
         self.last_execution_session_file_modified: str | None = None
         self.last_execution_session_result: str | None = None
         self.last_execution_session_error_detail: str | None = None
         self.last_execution_session_audit: str | None = None
+        self.execution_session_modified_files: list[str] = []
+        self.last_execution_session_human_approval_status: str | None = None
+        self.execution_session_context_snapshot: dict | None = None
+        self.execution_session_context_recovery_available = False
         self.last_execution_session_previous_state: str | None = None
         self.last_execution_session_transition: str | None = None
         self.execution_session_transition_allowed = True
@@ -1115,12 +1120,26 @@ class RuntimeStatus:
         self.last_execution_session_phase_id = result.get("phase_id")
         self.last_execution_session_audit_status = result.get("audit_status")
         self.last_execution_session_checkpoint = result.get("last_checkpoint")
+        self.last_execution_session_action = result.get("last_action")
         self.last_execution_session_file_modified = result.get(
             "last_file_modified"
         )
         self.last_execution_session_result = result.get("last_result")
         self.last_execution_session_error_detail = result.get("last_error")
         self.last_execution_session_audit = result.get("last_audit")
+        self.execution_session_modified_files = [
+            str(path) for path in (result.get("modified_files") or [])
+        ]
+        self.last_execution_session_human_approval_status = result.get(
+            "human_approval_status"
+        )
+        context_snapshot = result.get("context_snapshot")
+        self.execution_session_context_snapshot = (
+            dict(context_snapshot) if isinstance(context_snapshot, dict) else None
+        )
+        self.execution_session_context_recovery_available = bool(
+            result.get("context_recovery_available")
+        )
         self.last_execution_session_previous_state = result.get("previous_state")
         self.last_execution_session_transition = result.get("state_transition")
         self.execution_session_transition_allowed = bool(
@@ -2583,10 +2602,19 @@ class RuntimeStatus:
             "phase_id": self.last_execution_session_phase_id,
             "audit_status": self.last_execution_session_audit_status,
             "last_checkpoint": self.last_execution_session_checkpoint,
+            "last_action": self.last_execution_session_action,
             "last_file_modified": self.last_execution_session_file_modified,
             "last_result": self.last_execution_session_result,
             "last_error": self.last_execution_session_error_detail,
             "last_audit": self.last_execution_session_audit,
+            "modified_files": list(self.execution_session_modified_files),
+            "human_approval_status": (
+                self.last_execution_session_human_approval_status
+            ),
+            "context_snapshot": self.execution_session_context_snapshot,
+            "context_recovery_available": (
+                self.execution_session_context_recovery_available
+            ),
             "previous_state": self.last_execution_session_previous_state,
             "state_transition": self.last_execution_session_transition,
             "state_transition_allowed": (

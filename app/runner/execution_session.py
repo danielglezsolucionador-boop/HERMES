@@ -35,6 +35,10 @@ from app.runner.execution_lifecycle import (
     ExecutionLifecycleController,
     ExecutionLifecycleResult,
 )
+from app.runner.execution_context_memory import (
+    ExecutionContextMemory,
+    ExecutionContextMemoryResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +93,7 @@ class ExecutionSession:
     context_memory: dict[str, Any] = field(default_factory=dict)
     lifecycle_stage: str = LIFECYCLE_STAGE_ACTIVE_EXECUTION
     audit_status: str = "not_started"
+    human_approval_status: str | None = None
     created_at: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
@@ -96,14 +101,19 @@ class ExecutionSession:
     updated_at: str | None = None
     closed_at: str | None = None
     last_checkpoint: str | None = None
+    last_action: str | None = None
     last_file_modified: str | None = None
     last_result: str | None = None
     last_error: str | None = None
     last_audit: str | None = None
+    modified_files: tuple[str, ...] = field(default_factory=tuple)
+    error_history: tuple[dict[str, Any], ...] = field(default_factory=tuple)
+    provider_context: dict[str, Any] = field(default_factory=dict)
     recovery_available: bool = True
     active: bool = True
     state_history: tuple[dict[str, Any], ...] = field(default_factory=tuple)
     lifecycle_history: tuple[dict[str, Any], ...] = field(default_factory=tuple)
+    context_snapshots: tuple[dict[str, Any], ...] = field(default_factory=tuple)
     logs: tuple[ExecutionSessionLogEntry, ...] = field(default_factory=tuple)
 
     def to_dict(self) -> dict[str, Any]:
@@ -117,20 +127,28 @@ class ExecutionSession:
             "context_memory": dict(self.context_memory),
             "lifecycle_stage": self.lifecycle_stage,
             "audit_status": self.audit_status,
+            "human_approval_status": self.human_approval_status,
             "created_at": self.created_at,
             "started_at": self.started_at,
             "updated_at": self.updated_at,
             "closed_at": self.closed_at,
             "last_checkpoint": self.last_checkpoint,
+            "last_action": self.last_action,
             "last_file_modified": self.last_file_modified,
             "last_result": self.last_result,
             "last_error": self.last_error,
             "last_audit": self.last_audit,
+            "modified_files": list(self.modified_files),
+            "error_history": [dict(item) for item in self.error_history],
+            "provider_context": dict(self.provider_context),
             "recovery_available": self.recovery_available,
             "active": self.active,
             "state_history": [dict(item) for item in self.state_history],
             "lifecycle_history": [
                 dict(item) for item in self.lifecycle_history
+            ],
+            "context_snapshots": [
+                dict(item) for item in self.context_snapshots
             ],
             "logs": [entry.to_dict() for entry in self.logs],
         }
@@ -151,10 +169,15 @@ class ExecutionSessionResult:
     recovery_available: bool = False
     audit_status: str | None = None
     last_checkpoint: str | None = None
+    last_action: str | None = None
     last_file_modified: str | None = None
     last_result: str | None = None
     last_error: str | None = None
     last_audit: str | None = None
+    modified_files: tuple[str, ...] = field(default_factory=tuple)
+    human_approval_status: str | None = None
+    context_snapshot: dict[str, Any] | None = None
+    context_recovery_available: bool = False
     checked_at: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
@@ -186,10 +209,17 @@ class ExecutionSessionResult:
             "recovery_available": self.recovery_available,
             "audit_status": self.audit_status,
             "last_checkpoint": self.last_checkpoint,
+            "last_action": self.last_action,
             "last_file_modified": self.last_file_modified,
             "last_result": self.last_result,
             "last_error": self.last_error,
             "last_audit": self.last_audit,
+            "modified_files": list(self.modified_files),
+            "human_approval_status": self.human_approval_status,
+            "context_snapshot": (
+                dict(self.context_snapshot) if self.context_snapshot else None
+            ),
+            "context_recovery_available": self.context_recovery_available,
             "checked_at": self.checked_at,
             "duration_ms": self.duration_ms,
             "session": self.session.to_dict() if self.session else None,
@@ -218,6 +248,7 @@ class ExecutionSessionManager:
         self.max_log_entries = max(1, int(max_log_entries or 1))
         self.state_controller = ExecutionStateController()
         self.lifecycle_controller = ExecutionLifecycleController()
+        self.context_memory = ExecutionContextMemory()
         self._sessions: dict[str, ExecutionSession] = {}
         self._active_session_id: str | None = None
 
@@ -342,6 +373,31 @@ class ExecutionSessionManager:
                     ),
                 ),
             )
+            memory = self.context_memory.preserve(
+                session.to_dict(),
+                checkpoint="session_started",
+                last_action="session_started",
+            )
+            if not memory.success:
+                result = self._result(
+                    status="rejected",
+                    success=False,
+                    session_state=session.execution_status,
+                    session=session,
+                    context_memory=memory,
+                    reasons=list(memory.reasons),
+                    started=started,
+                )
+                self._log_result(result)
+                return result
+            session = replace(
+                session,
+                last_checkpoint="session_started",
+                last_action="session_started",
+                context_snapshots=(memory.snapshot.to_dict(),)
+                if memory.snapshot
+                else tuple(),
+            )
             self._sessions[session.session_id] = session
             self._active_session_id = session.session_id
             result = self._result(
@@ -350,6 +406,7 @@ class ExecutionSessionManager:
                 session_state=session.execution_status,
                 session=session,
                 transition=running_transition,
+                context_memory=memory,
                 started=started,
             )
             self._log_result(result)
@@ -374,8 +431,13 @@ class ExecutionSessionManager:
         result: str | None = None,
         error: str | None = None,
         audit_status: str | None = None,
+        human_approval_status: str | None = None,
         last_audit: str | None = None,
+        last_action: str | None = None,
+        modified_files: list[str] | tuple[str, ...] | None = None,
+        provider_context: dict[str, Any] | None = None,
         context_updates: dict[str, Any] | None = None,
+        context_metadata: dict[str, Any] | None = None,
         state: str | None = None,
         recovery_authorized: bool = False,
         transition_reasons: list[str] | tuple[str, ...] | None = None,
@@ -423,12 +485,31 @@ class ExecutionSessionManager:
 
         memory = dict(session.context_memory)
         memory.update(dict(context_updates or {}))
+        files = list(session.modified_files)
+        if file_modified:
+            files.append(file_modified)
+        for path in modified_files or []:
+            files.append(str(path))
+        deduped_files = tuple(dict.fromkeys(path for path in files if path))
+        provider = dict(session.provider_context)
+        provider.update(dict(provider_context or {}))
+        errors = list(session.error_history)
+        if error:
+            errors.append(
+                {
+                    "error": error,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
         final_state = next_state in SESSION_FINAL_STATES
         updated = replace(
             session,
             execution_status=next_state,
             context_memory=memory,
             audit_status=audit_status or session.audit_status,
+            human_approval_status=(
+                human_approval_status or session.human_approval_status
+            ),
             updated_at=datetime.now(timezone.utc).isoformat(),
             closed_at=(
                 datetime.now(timezone.utc).isoformat()
@@ -438,10 +519,14 @@ class ExecutionSessionManager:
             active=False if final_state else session.active,
             recovery_available=False if next_state == SESSION_STATE_COMPLETED else True,
             last_checkpoint=checkpoint or session.last_checkpoint,
+            last_action=last_action or session.last_action,
             last_file_modified=file_modified or session.last_file_modified,
             last_result=result or session.last_result,
             last_error=error or session.last_error,
             last_audit=last_audit or session.last_audit,
+            modified_files=deduped_files,
+            error_history=tuple(errors),
+            provider_context=provider,
             state_history=(
                 *session.state_history,
                 transition.to_dict(),
@@ -453,6 +538,37 @@ class ExecutionSessionManager:
                 metadata=transition.to_dict(),
             ),
         )
+        memory_result = self.context_memory.preserve(
+            updated.to_dict(),
+            checkpoint=updated.last_checkpoint,
+            last_action=updated.last_action,
+            modified_files=updated.modified_files,
+            audit_status=updated.audit_status,
+            human_approval_status=updated.human_approval_status,
+            error=None,
+            provider_context=updated.provider_context,
+            metadata=context_metadata,
+        )
+        if not memory_result.success:
+            result = self._result(
+                status="rejected",
+                success=False,
+                session_state=session.execution_status,
+                session=session,
+                context_memory=memory_result,
+                reasons=list(memory_result.reasons),
+                started=started,
+            )
+            self._log_result(result)
+            return result
+        if memory_result.snapshot:
+            updated = replace(
+                updated,
+                context_snapshots=(
+                    *updated.context_snapshots,
+                    memory_result.snapshot.to_dict(),
+                ),
+            )
         self._sessions[session_id] = updated
         if final_state and self._active_session_id == session_id:
             self._active_session_id = None
@@ -462,6 +578,7 @@ class ExecutionSessionManager:
             session_state=updated.execution_status,
             session=updated,
             transition=transition,
+            context_memory=memory_result,
             started=started,
         )
 
@@ -525,6 +642,7 @@ class ExecutionSessionManager:
             session,
             lifecycle_stage=lifecycle.next_stage or session.lifecycle_stage,
             audit_status=audit_status or session.audit_status,
+            last_action=f"lifecycle:{lifecycle.next_stage}",
             updated_at=datetime.now(timezone.utc).isoformat(),
             lifecycle_history=(
                 *session.lifecycle_history,
@@ -537,6 +655,36 @@ class ExecutionSessionManager:
                 metadata=lifecycle.to_dict(),
             ),
         )
+        memory_result = self.context_memory.preserve(
+            updated.to_dict(),
+            checkpoint=updated.last_checkpoint,
+            last_action=updated.last_action,
+            modified_files=updated.modified_files,
+            audit_status=updated.audit_status,
+            human_approval_status=updated.human_approval_status,
+            provider_context=updated.provider_context,
+            metadata={"lifecycle": lifecycle.to_dict()},
+        )
+        if not memory_result.success:
+            result = self._result(
+                status="rejected",
+                success=False,
+                session_state=session.execution_status,
+                session=session,
+                context_memory=memory_result,
+                reasons=list(memory_result.reasons),
+                started=started,
+            )
+            self._log_result(result)
+            return result
+        if memory_result.snapshot:
+            updated = replace(
+                updated,
+                context_snapshots=(
+                    *updated.context_snapshots,
+                    memory_result.snapshot.to_dict(),
+                ),
+            )
         self._sessions[session_id] = updated
         return self._result(
             status="lifecycle_advanced",
@@ -544,6 +692,7 @@ class ExecutionSessionManager:
             session_state=updated.execution_status,
             session=updated,
             lifecycle=lifecycle,
+            context_memory=memory_result,
             started=started,
         )
 
@@ -580,6 +729,23 @@ class ExecutionSessionManager:
             )
             self._log_result(result)
             return result
+        context_recovery = self.context_memory.recover(
+            session.context_snapshots,
+            session.task_id,
+            session.phase_id,
+        )
+        if not context_recovery.success:
+            result = self._result(
+                status="rejected",
+                success=False,
+                session_state=session.execution_status,
+                session=session,
+                context_memory=context_recovery,
+                reasons=list(context_recovery.reasons),
+                started=started,
+            )
+            self._log_result(result)
+            return result
         recovered = replace(
             session,
             execution_status=SESSION_STATE_RUNNING,
@@ -593,7 +759,10 @@ class ExecutionSessionManager:
                 session,
                 "session_recovered",
                 "Execution session recovered.",
-                metadata=transition.to_dict(),
+                metadata={
+                    "transition": transition.to_dict(),
+                    "context": context_recovery.to_dict(),
+                },
             ),
         )
         self._sessions[recovered.session_id] = recovered
@@ -604,6 +773,7 @@ class ExecutionSessionManager:
             session_state=recovered.execution_status,
             session=recovered,
             transition=transition,
+            context_memory=context_recovery,
             started=started,
         )
 
@@ -648,6 +818,8 @@ class ExecutionSessionManager:
             recovery_available=False,
             updated_at=datetime.now(timezone.utc).isoformat(),
             closed_at=datetime.now(timezone.utc).isoformat(),
+            last_checkpoint=session.last_checkpoint or "session_closed",
+            last_action="session_closed",
             last_result=result or session.last_result,
             last_error=error or session.last_error,
             state_history=(
@@ -661,6 +833,35 @@ class ExecutionSessionManager:
                 metadata=transition.to_dict(),
             ),
         )
+        memory_result = self.context_memory.preserve(
+            closed.to_dict(),
+            checkpoint=closed.last_checkpoint or "session_closed",
+            last_action="session_closed",
+            modified_files=closed.modified_files,
+            audit_status=closed.audit_status,
+            human_approval_status=closed.human_approval_status,
+            provider_context=closed.provider_context,
+        )
+        if not memory_result.success:
+            result = self._result(
+                status="rejected",
+                success=False,
+                session_state=session.execution_status,
+                session=session,
+                context_memory=memory_result,
+                reasons=list(memory_result.reasons),
+                started=started,
+            )
+            self._log_result(result)
+            return result
+        if memory_result.snapshot:
+            closed = replace(
+                closed,
+                context_snapshots=(
+                    *closed.context_snapshots,
+                    memory_result.snapshot.to_dict(),
+                ),
+            )
         self._sessions[session_id] = closed
         if self._active_session_id == session_id:
             self._active_session_id = None
@@ -670,6 +871,7 @@ class ExecutionSessionManager:
             session_state=closed.execution_status,
             session=closed,
             transition=transition,
+            context_memory=memory_result,
             started=started,
         )
 
@@ -797,6 +999,7 @@ class ExecutionSessionManager:
         error: str | None = None,
         transition: ExecutionStateTransitionResult | None = None,
         lifecycle: ExecutionLifecycleResult | None = None,
+        context_memory: ExecutionContextMemoryResult | None = None,
         started: float | None = None,
     ) -> ExecutionSessionResult:
         active_sessions = 1 if self.active_session() else 0
@@ -814,10 +1017,23 @@ class ExecutionSessionManager:
             recovery_available=bool(session and session.recovery_available),
             audit_status=session.audit_status if session else None,
             last_checkpoint=session.last_checkpoint if session else None,
+            last_action=session.last_action if session else None,
             last_file_modified=session.last_file_modified if session else None,
             last_result=session.last_result if session else None,
             last_error=session.last_error if session else None,
             last_audit=session.last_audit if session else None,
+            modified_files=session.modified_files if session else tuple(),
+            human_approval_status=(
+                session.human_approval_status if session else None
+            ),
+            context_snapshot=(
+                context_memory.snapshot.to_dict()
+                if context_memory and context_memory.snapshot
+                else None
+            ),
+            context_recovery_available=(
+                context_memory.recovery_available if context_memory else False
+            ),
             duration_ms=(
                 int((time.perf_counter() - started) * 1000)
                 if started is not None
