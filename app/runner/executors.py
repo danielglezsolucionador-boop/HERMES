@@ -11,6 +11,53 @@ from app.models.task import Task
 logger = logging.getLogger(__name__)
 
 EXECUTOR_TIMEOUT = 30
+AI_EXECUTOR_VALUES = {"ai", "provider", "llm"}
+AI_PROVIDER_HINTS = {
+    "ai",
+    "claude",
+    "deepseek",
+    "gemini",
+    "llm",
+    "openai",
+    "openrouter",
+    "vulcan",
+    "vulcano",
+}
+AI_MODEL_PREFIXES = (
+    "anthropic/",
+    "claude",
+    "deepseek/",
+    "gemini",
+    "gpt-",
+    "llama",
+    "mistral",
+    "openai/",
+    "qwen",
+)
+
+
+def _normalized_payload_value(payload: dict, key: str) -> str:
+    value = payload.get(key)
+    return str(value or "").strip().lower()
+
+
+def is_ai_task_payload(payload: dict) -> bool:
+    if not isinstance(payload, dict):
+        return False
+
+    executor = _normalized_payload_value(payload, "executor")
+    task_type = _normalized_payload_value(payload, "type")
+    agent = _normalized_payload_value(payload, "agent")
+    provider = _normalized_payload_value(payload, "provider")
+    model = _normalized_payload_value(payload, "model")
+
+    return (
+        executor in AI_EXECUTOR_VALUES
+        or task_type in AI_EXECUTOR_VALUES
+        or agent in AI_PROVIDER_HINTS
+        or provider in AI_PROVIDER_HINTS
+        or any(model.startswith(prefix) for prefix in AI_MODEL_PREFIXES)
+    )
 
 
 async def _run(task: Task) -> dict:
@@ -29,7 +76,7 @@ async def _run(task: Task) -> dict:
         logger.warning("executor: simulated timeout task_id=%s", task.id)
         await asyncio.sleep(EXECUTOR_TIMEOUT + 5)
 
-    if _is_ai_task(payload):
+    if is_ai_task_payload(payload):
         return await _run_ai_task(task, payload, start)
 
     await asyncio.sleep(1)
@@ -42,14 +89,6 @@ async def _run(task: Task) -> dict:
         "duration_ms": duration_ms,
         "message": "Task ejecutada correctamente",
     }
-
-
-def _is_ai_task(payload: dict) -> bool:
-    return (
-        payload.get("executor") == "ai"
-        or payload.get("type") == "ai"
-        or payload.get("agent") in {"claude", "vulcano", "openrouter"}
-    )
 
 
 async def _run_ai_task(task: Task, payload: dict, start: float) -> dict:

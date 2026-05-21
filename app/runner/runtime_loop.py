@@ -20,7 +20,7 @@ from sqlalchemy import func, select
 from app.core.config import settings
 from app.db.engine import AsyncSessionLocal
 from app.models.task import Task
-from app.runner.executors import execute_task
+from app.runner.executors import execute_task, is_ai_task_payload
 from app.runner.pickup_safety import PickupSafety, PickupSafetyResult
 from app.runner.execution_safety import ExecutionSafety, ExecutionSafetyResult
 from app.runner.execution_session import (
@@ -480,11 +480,7 @@ class RuntimeLoop:
 
     def _task_requires_provider(self, task: Task) -> bool:
         payload = task.payload if isinstance(task.payload, dict) else {}
-        return (
-            payload.get("executor") == "ai"
-            or payload.get("type") == "ai"
-            or payload.get("agent") in {"claude", "vulcano", "openrouter"}
-        )
+        return is_ai_task_payload(payload)
 
     def _execution_rejected_result(
         self,
