@@ -17,23 +17,29 @@ from typing import Any
 from uuid import uuid4
 
 from app.runner.approval_gate import ApprovalGateResult
+from app.runner.approval_system import ApprovalSystemResult
 from app.runner.audit_response_control import AuditResponseControlResult
+from app.runner.governance_foundation import GovernanceFoundationResult
 
 logger = logging.getLogger(__name__)
 
 BLOCK_TYPE_AUDIT = "audit"
+BLOCK_TYPE_APPROVAL = "approval"
 BLOCK_TYPE_SECURITY = "security"
 BLOCK_TYPE_GOVERNANCE = "governance"
 BLOCK_TYPE_RUNTIME = "runtime"
 BLOCK_TYPE_PROVIDER = "provider"
 BLOCK_TYPE_HUMAN = "human"
+BLOCK_TYPE_CONTINUATION = "continuation"
 SUPPORTED_BLOCK_TYPES = {
     BLOCK_TYPE_AUDIT,
+    BLOCK_TYPE_APPROVAL,
     BLOCK_TYPE_SECURITY,
     BLOCK_TYPE_GOVERNANCE,
     BLOCK_TYPE_RUNTIME,
     BLOCK_TYPE_PROVIDER,
     BLOCK_TYPE_HUMAN,
+    BLOCK_TYPE_CONTINUATION,
 }
 
 BLOCK_STATUS_ACTIVE = "active"
@@ -71,6 +77,13 @@ class ExecutionBlockRequest:
     risk_level: str | None = None
     audit_response: AuditResponseControlResult | dict[str, Any] | Any | None = None
     approval_gate: ApprovalGateResult | dict[str, Any] | Any | None = None
+    approval_system: ApprovalSystemResult | dict[str, Any] | Any | None = None
+    governance_foundation: (
+        GovernanceFoundationResult | dict[str, Any] | Any | None
+    ) = None
+    continuation_status: str | None = None
+    security_status: str | None = None
+    blocking_status: str | None = None
     runtime_state: dict[str, Any] = field(default_factory=dict)
     provider_context: dict[str, Any] = field(default_factory=dict)
     execution_context: dict[str, Any] = field(default_factory=dict)
@@ -78,7 +91,12 @@ class ExecutionBlockRequest:
     runtime_logs: tuple[Any, ...] = field(default_factory=tuple)
     audit_history: tuple[Any, ...] = field(default_factory=tuple)
     risk_history: tuple[str, ...] = field(default_factory=tuple)
+    corruption_warnings: tuple[str, ...] = field(default_factory=tuple)
     human_requested: bool = False
+    override_block_requested: bool = False
+    ignore_critical_block_requested: bool = False
+    minimize_risk_requested: bool = False
+    falsify_runtime_stability_requested: bool = False
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -102,6 +120,16 @@ class ExecutionBlockResult:
     governance_protected: bool
     security_authority_required: bool
     human_authority_required: bool
+    block_condition_detected: bool
+    governance_conflict_detected: bool
+    approval_missing_detected: bool
+    audit_rejection_detected: bool
+    security_escalation_detected: bool
+    runtime_corruption_detected: bool
+    execution_inconsistency_detected: bool
+    continuation_unsafe_detected: bool
+    block_preserved: bool
+    escalation_report: dict[str, Any] = field(default_factory=dict)
     modified_files: tuple[str, ...] = field(default_factory=tuple)
     runtime_logs: tuple[dict[str, Any], ...] = field(default_factory=tuple)
     audit_history: tuple[dict[str, Any], ...] = field(default_factory=tuple)
@@ -137,6 +165,20 @@ class ExecutionBlockResult:
             "governance_protected": self.governance_protected,
             "security_authority_required": self.security_authority_required,
             "human_authority_required": self.human_authority_required,
+            "block_condition_detected": self.block_condition_detected,
+            "governance_conflict_detected": self.governance_conflict_detected,
+            "approval_missing_detected": self.approval_missing_detected,
+            "audit_rejection_detected": self.audit_rejection_detected,
+            "security_escalation_detected": self.security_escalation_detected,
+            "runtime_corruption_detected": self.runtime_corruption_detected,
+            "execution_inconsistency_detected": (
+                self.execution_inconsistency_detected
+            ),
+            "continuation_unsafe_detected": (
+                self.continuation_unsafe_detected
+            ),
+            "block_preserved": self.block_preserved,
+            "escalation_report": dict(self.escalation_report),
             "modified_files": list(self.modified_files),
             "runtime_logs": [dict(entry) for entry in self.runtime_logs],
             "audit_history": [dict(entry) for entry in self.audit_history],
@@ -173,14 +215,43 @@ class ExecutionBlocking:
         try:
             audit_response = self._audit_response(request.audit_response)
             approval_gate = self._approval_gate(request.approval_gate)
-            block_type = self._block_type(request, audit_response, approval_gate)
-            risk_level = self._risk_level(request, audit_response, approval_gate)
-            execution_id = self._execution_id(request, audit_response, approval_gate)
-            task_id = self._task_id(request, audit_response, approval_gate)
+            approval_system = self._approval_system(request.approval_system)
+            governance_foundation = self._governance_foundation(
+                request.governance_foundation
+            )
+            block_type = self._block_type(
+                request,
+                audit_response,
+                approval_gate,
+                approval_system,
+                governance_foundation,
+            )
+            risk_level = self._risk_level(
+                request,
+                audit_response,
+                approval_gate,
+                approval_system,
+                governance_foundation,
+            )
+            execution_id = self._execution_id(
+                request,
+                audit_response,
+                approval_gate,
+                approval_system,
+                governance_foundation,
+            )
+            task_id = self._task_id(
+                request,
+                audit_response,
+                approval_gate,
+                approval_system,
+            )
             block_reason = self._block_reason(
                 request,
                 audit_response,
                 approval_gate,
+                approval_system,
+                governance_foundation,
                 block_type,
             )
             reasons = self._request_reasons(
@@ -214,6 +285,8 @@ class ExecutionBlocking:
                     request=request,
                     audit_response=audit_response,
                     approval_gate=approval_gate,
+                    approval_system=approval_system,
+                    governance_foundation=governance_foundation,
                     lifecycle=(
                         self._lifecycle("block_detection"),
                         self._lifecycle(BLOCK_STATUS_BLOCKED),
@@ -244,7 +317,10 @@ class ExecutionBlocking:
                 block_reason=block_reason,
                 risk_level=risk_level,
                 escalation_status=escalation_status,
-                continuation_status=self._continuation_status(classification),
+                continuation_status=self._continuation_status(
+                    block_type,
+                    classification,
+                ),
                 execution_frozen=True,
                 continuation_blocked=True,
                 context_preserved=True,
@@ -255,6 +331,8 @@ class ExecutionBlocking:
                 request=request,
                 audit_response=audit_response,
                 approval_gate=approval_gate,
+                approval_system=approval_system,
+                governance_foundation=governance_foundation,
                 lifecycle=(
                     self._lifecycle("block_detection"),
                     self._lifecycle("block_activation"),
@@ -291,6 +369,8 @@ class ExecutionBlocking:
                 request=request,
                 audit_response={},
                 approval_gate={},
+                approval_system={},
+                governance_foundation={},
                 lifecycle=(self._lifecycle(BLOCK_STATUS_ERROR),),
                 reasons=["execution_blocking_error_contained"],
                 error=str(exc),
@@ -324,6 +404,8 @@ class ExecutionBlocking:
         request: ExecutionBlockRequest,
         audit_response: dict[str, Any],
         approval_gate: dict[str, Any],
+        approval_system: dict[str, Any],
+        governance_foundation: dict[str, Any],
         lifecycle: tuple[dict[str, Any], ...],
         reasons: list[str] | None = None,
         error: str | None = None,
@@ -351,6 +433,39 @@ class ExecutionBlocking:
             governance_protected=governance_protected,
             security_authority_required=security_authority_required,
             human_authority_required=human_authority_required,
+            block_condition_detected=block_type in SUPPORTED_BLOCK_TYPES,
+            governance_conflict_detected=self._governance_conflict(
+                governance_foundation,
+                approval_gate,
+            ),
+            approval_missing_detected=self._approval_missing(approval_system),
+            audit_rejection_detected=self._audit_rejected(audit_response),
+            security_escalation_detected=self._security_escalation(
+                request,
+                audit_response,
+                approval_system,
+                governance_foundation,
+            ),
+            runtime_corruption_detected=self._runtime_corrupted(
+                request.runtime_state
+            ),
+            execution_inconsistency_detected=self._execution_inconsistent(
+                request,
+            ),
+            continuation_unsafe_detected=self._continuation_unsafe(request),
+            block_preserved=not (
+                request.override_block_requested
+                or request.ignore_critical_block_requested
+            ),
+            escalation_report=self._escalation_report(
+                request=request,
+                block_type=block_type,
+                block_reason=block_reason,
+                risk_level=risk_level,
+                escalation_status=escalation_status,
+                governance_foundation=governance_foundation,
+                approval_system=approval_system,
+            ),
             modified_files=tuple(self._modified_files(request, audit_response)),
             runtime_logs=tuple(self._runtime_logs(request)),
             audit_history=tuple(self._audit_history(request, audit_response)),
@@ -396,27 +511,53 @@ class ExecutionBlocking:
         request: ExecutionBlockRequest,
         audit_response: dict[str, Any],
         approval_gate: dict[str, Any],
+        approval_system: dict[str, Any],
+        governance_foundation: dict[str, Any],
     ) -> str | None:
         if request.block_type:
             return str(request.block_type).strip().lower()
         if request.human_requested:
             return BLOCK_TYPE_HUMAN
+        if self._security_escalation(
+            request,
+            audit_response,
+            approval_system,
+            governance_foundation,
+        ):
+            return BLOCK_TYPE_SECURITY
         audit_status = str(audit_response.get("status") or "").lower()
         if audit_response.get("centinela_escalation") or self._has_security_hint(
             request,
             audit_response,
             approval_gate,
+            approval_system,
+            governance_foundation,
         ):
             return BLOCK_TYPE_SECURITY
         if audit_status in {"rejected", "needs_fix"}:
             return BLOCK_TYPE_AUDIT
+        if self._approval_missing(approval_system):
+            return BLOCK_TYPE_APPROVAL
+        approval_system_status = str(approval_system.get("status") or "").lower()
+        if approval_system_status in {
+            "blocked",
+            "escalation_required",
+            "rejected",
+        }:
+            return BLOCK_TYPE_APPROVAL
         approval_status = str(approval_gate.get("approval_status") or "").lower()
         if approval_status in {"pending", "rejected", "needs_changes", "escalated"}:
             return BLOCK_TYPE_GOVERNANCE
+        if self._governance_conflict(governance_foundation, approval_gate):
+            return BLOCK_TYPE_GOVERNANCE
         if self._runtime_corrupted(request.runtime_state):
+            return BLOCK_TYPE_RUNTIME
+        if self._execution_inconsistent(request):
             return BLOCK_TYPE_RUNTIME
         if self._provider_failed(request.provider_context):
             return BLOCK_TYPE_PROVIDER
+        if self._continuation_unsafe(request):
+            return BLOCK_TYPE_CONTINUATION
         return None
 
     def _risk_level(
@@ -424,13 +565,29 @@ class ExecutionBlocking:
         request: ExecutionBlockRequest,
         audit_response: dict[str, Any],
         approval_gate: dict[str, Any],
+        approval_system: dict[str, Any],
+        governance_foundation: dict[str, Any],
     ) -> str | None:
         value = (
             request.risk_level
             or audit_response.get("risk_level")
             or approval_gate.get("risk_status")
+            or approval_system.get("risk_level")
         )
         if value is None:
+            if self._security_escalation(
+                request,
+                audit_response,
+                approval_system,
+                governance_foundation,
+            ):
+                return RISK_CRITICAL
+            if self._approval_missing(approval_system):
+                return RISK_ELEVATED
+            if self._governance_conflict(governance_foundation, approval_gate):
+                return RISK_ELEVATED
+            if self._continuation_unsafe(request):
+                return RISK_CRITICAL
             if self._provider_failed(request.provider_context):
                 return RISK_ELEVATED
             if request.human_requested:
@@ -450,11 +607,15 @@ class ExecutionBlocking:
         request: ExecutionBlockRequest,
         audit_response: dict[str, Any],
         approval_gate: dict[str, Any],
+        approval_system: dict[str, Any],
+        governance_foundation: dict[str, Any],
     ) -> str | None:
         return (
             request.execution_id
             or audit_response.get("execution_id")
             or approval_gate.get("execution_id")
+            or approval_system.get("execution_id")
+            or governance_foundation.get("execution_context", {}).get("execution_id")
         )
 
     def _task_id(
@@ -462,11 +623,13 @@ class ExecutionBlocking:
         request: ExecutionBlockRequest,
         audit_response: dict[str, Any],
         approval_gate: dict[str, Any],
+        approval_system: dict[str, Any],
     ) -> str | None:
         return (
             request.task_id
             or audit_response.get("task_id")
             or approval_gate.get("task_id")
+            or approval_system.get("task_id")
         )
 
     def _block_reason(
@@ -474,12 +637,16 @@ class ExecutionBlocking:
         request: ExecutionBlockRequest,
         audit_response: dict[str, Any],
         approval_gate: dict[str, Any],
+        approval_system: dict[str, Any],
+        governance_foundation: dict[str, Any],
         block_type: str | None,
     ) -> str | None:
         if request.block_reason:
             return request.block_reason
         if block_type == BLOCK_TYPE_SECURITY:
             return "security_escalation_blocks_continuation"
+        if block_type == BLOCK_TYPE_APPROVAL:
+            return "approval_validation_blocks_continuation"
         if block_type == BLOCK_TYPE_AUDIT:
             return "audit_result_blocks_continuation"
         if block_type == BLOCK_TYPE_GOVERNANCE:
@@ -490,6 +657,12 @@ class ExecutionBlocking:
             return "provider_failure_blocks_continuation"
         if block_type == BLOCK_TYPE_HUMAN:
             return "human_requested_execution_block"
+        if block_type == BLOCK_TYPE_CONTINUATION:
+            return "unsafe_continuation_blocks_execution"
+        if approval_system.get("execution_decision"):
+            return str(approval_system["execution_decision"])
+        if governance_foundation.get("status"):
+            return str(governance_foundation["status"])
         if audit_response.get("block_reason"):
             return str(audit_response["block_reason"])
         if approval_gate.get("continuation_status"):
@@ -499,7 +672,11 @@ class ExecutionBlocking:
     def _classification(self, block_type: str | None, risk_level: str | None) -> str:
         if block_type == BLOCK_TYPE_SECURITY:
             return BLOCK_CLASS_SECURITY
-        if block_type == BLOCK_TYPE_GOVERNANCE:
+        if block_type in {
+            BLOCK_TYPE_APPROVAL,
+            BLOCK_TYPE_GOVERNANCE,
+            BLOCK_TYPE_CONTINUATION,
+        }:
             return BLOCK_CLASS_GOVERNANCE
         if risk_level == RISK_CRITICAL or block_type in {
             BLOCK_TYPE_AUDIT,
@@ -516,7 +693,9 @@ class ExecutionBlocking:
     ) -> str:
         if classification == BLOCK_CLASS_SECURITY:
             return "escalated_to_centinela"
-        if classification == BLOCK_CLASS_GOVERNANCE:
+        if block_type == BLOCK_TYPE_APPROVAL:
+            return "approval_escalation_required"
+        if block_type in {BLOCK_TYPE_GOVERNANCE, BLOCK_TYPE_CONTINUATION}:
             return "waiting_human_approval"
         if classification == BLOCK_CLASS_CRITICAL:
             return "human_intervention_required"
@@ -524,9 +703,13 @@ class ExecutionBlocking:
             return "operator_visibility_required"
         return "not_required"
 
-    def _continuation_status(self, classification: str) -> str:
+    def _continuation_status(self, block_type: str | None, classification: str) -> str:
         if classification == BLOCK_CLASS_SECURITY:
             return "blocked_security_authority"
+        if block_type == BLOCK_TYPE_APPROVAL:
+            return "blocked_approval_authority"
+        if block_type == BLOCK_TYPE_CONTINUATION:
+            return "blocked_unsafe_continuation"
         if classification == BLOCK_CLASS_GOVERNANCE:
             return "blocked_governance_authority"
         if classification == BLOCK_CLASS_CRITICAL:
@@ -573,6 +756,146 @@ class ExecutionBlocking:
             return result if isinstance(result, dict) else {}
         return {}
 
+    def _approval_system(self, value: Any) -> dict[str, Any]:
+        if value is None:
+            return {}
+        if isinstance(value, dict):
+            return dict(value)
+        if isinstance(value, ApprovalSystemResult):
+            return value.to_dict()
+        to_dict = getattr(value, "to_dict", None)
+        if callable(to_dict):
+            result = to_dict()
+            return result if isinstance(result, dict) else {}
+        return {}
+
+    def _governance_foundation(self, value: Any) -> dict[str, Any]:
+        if value is None:
+            return {}
+        if isinstance(value, dict):
+            return dict(value)
+        if isinstance(value, GovernanceFoundationResult):
+            return value.to_dict()
+        to_dict = getattr(value, "to_dict", None)
+        if callable(to_dict):
+            result = to_dict()
+            return result if isinstance(result, dict) else {}
+        return {}
+
+    def _governance_conflict(
+        self,
+        governance_foundation: dict[str, Any],
+        approval_gate: dict[str, Any],
+    ) -> bool:
+        governance_status = str(
+            governance_foundation.get("status")
+            or approval_gate.get("governance_status")
+            or ""
+        ).lower()
+        return governance_status in {
+            "blocked",
+            "rejected",
+            "human_rejected",
+            "changes_requested",
+            "escalated",
+        } or bool(governance_foundation.get("reasons"))
+
+    def _approval_missing(self, approval_system: dict[str, Any]) -> bool:
+        if not approval_system:
+            return False
+        status = str(approval_system.get("status") or "").lower()
+        reasons = {
+            str(reason)
+            for reason in (approval_system.get("reasons") or [])
+        }
+        return (
+            approval_system.get("approval_exists") is False
+            or status in {"blocked", "escalation_required", "rejected"}
+            or "approval_missing" in reasons
+            or "approval_status_missing" in reasons
+            or "approval_pending" in reasons
+        )
+
+    def _audit_rejected(self, audit_response: dict[str, Any]) -> bool:
+        status = str(audit_response.get("status") or "").lower()
+        audit_result = str(audit_response.get("audit_result") or "").lower()
+        return status in {"rejected", "needs_fix"} or audit_result in {
+            "rejected",
+            "needs_fix",
+        }
+
+    def _security_escalation(
+        self,
+        request: ExecutionBlockRequest,
+        audit_response: dict[str, Any],
+        approval_system: dict[str, Any],
+        governance_foundation: dict[str, Any],
+    ) -> bool:
+        security_status = str(
+            request.security_status
+            or approval_system.get("security_status")
+            or governance_foundation.get("security_status")
+            or audit_response.get("security_escalation_status")
+            or ""
+        ).lower()
+        return (
+            audit_response.get("centinela_escalation") is True
+            or security_status
+            in {"blocked", "critical", "critical_blocking", "escalated", "quarantine"}
+        )
+
+    def _execution_inconsistent(self, request: ExecutionBlockRequest) -> bool:
+        values = json.dumps(request.execution_context, sort_keys=True, default=str)
+        body = " ".join([values, *[str(item) for item in request.corruption_warnings]])
+        return any(
+            word in body.lower()
+            for word in (
+                "inconsistent",
+                "orphan",
+                "mismatch",
+                "invalid_state",
+                "corrupt",
+            )
+        ) or request.falsify_runtime_stability_requested
+
+    def _continuation_unsafe(self, request: ExecutionBlockRequest) -> bool:
+        status = str(request.continuation_status or "").lower()
+        return status in {
+            "unsafe",
+            "blocked",
+            "blocked_unsafe_continuation",
+            "dangerous",
+        } or bool(
+            request.override_block_requested
+            or request.ignore_critical_block_requested
+            or request.minimize_risk_requested
+        )
+
+    def _escalation_report(
+        self,
+        request: ExecutionBlockRequest,
+        block_type: str | None,
+        block_reason: str | None,
+        risk_level: str | None,
+        escalation_status: str,
+        governance_foundation: dict[str, Any],
+        approval_system: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {
+            "block_type": block_type,
+            "block_reason": block_reason,
+            "risk_level": risk_level,
+            "escalation_status": escalation_status,
+            "governance_status": request.blocking_status
+            or governance_foundation.get("governance_status"),
+            "security_status": request.security_status
+            or approval_system.get("security_status")
+            or governance_foundation.get("security_status"),
+            "continuation_status": request.continuation_status,
+            "governance_reasons": list(governance_foundation.get("reasons") or []),
+            "approval_reasons": list(approval_system.get("reasons") or []),
+        }
+
     def _runtime_corrupted(self, runtime_state: dict[str, Any]) -> bool:
         values = json.dumps(runtime_state, sort_keys=True, default=str).lower()
         return any(word in values for word in ("corrupt", "compromise", "unsafe"))
@@ -586,6 +909,8 @@ class ExecutionBlocking:
         request: ExecutionBlockRequest,
         audit_response: dict[str, Any],
         approval_gate: dict[str, Any],
+        approval_system: dict[str, Any],
+        governance_foundation: dict[str, Any],
     ) -> bool:
         body = " ".join(
             [
@@ -603,6 +928,10 @@ class ExecutionBlocking:
                 str(audit_response.get("block_reason") or ""),
                 *[str(item) for item in approval_gate.get("detected_risks") or []],
                 str(approval_gate.get("governance_status") or ""),
+                str(approval_system.get("security_status") or ""),
+                *[str(item) for item in approval_system.get("risks") or []],
+                str(governance_foundation.get("security_status") or ""),
+                *[str(item) for item in governance_foundation.get("risks") or []],
                 json.dumps(request.runtime_state, sort_keys=True, default=str),
                 json.dumps(request.provider_context, sort_keys=True, default=str),
             ]

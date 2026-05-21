@@ -687,6 +687,16 @@ class RuntimeStatus:
         self.execution_block_governance_protected = False
         self.execution_block_security_authority_required = False
         self.execution_block_human_authority_required = False
+        self.execution_block_condition_detected = False
+        self.execution_block_governance_conflict_detected = False
+        self.execution_block_approval_missing_detected = False
+        self.execution_block_audit_rejection_detected = False
+        self.execution_block_security_escalation_detected = False
+        self.execution_block_runtime_corruption_detected = False
+        self.execution_block_execution_inconsistency_detected = False
+        self.execution_block_continuation_unsafe_detected = False
+        self.execution_block_preserved = False
+        self.execution_block_escalation_report: dict = {}
         self.execution_block_modified_files: list[str] = []
         self.execution_block_runtime_logs: list[dict] = []
         self.execution_block_audit_history: list[dict] = []
@@ -3342,6 +3352,34 @@ class RuntimeStatus:
         self.execution_block_human_authority_required = bool(
             result.get("human_authority_required")
         )
+        self.execution_block_condition_detected = bool(
+            result.get("block_condition_detected")
+        )
+        self.execution_block_governance_conflict_detected = bool(
+            result.get("governance_conflict_detected")
+        )
+        self.execution_block_approval_missing_detected = bool(
+            result.get("approval_missing_detected")
+        )
+        self.execution_block_audit_rejection_detected = bool(
+            result.get("audit_rejection_detected")
+        )
+        self.execution_block_security_escalation_detected = bool(
+            result.get("security_escalation_detected")
+        )
+        self.execution_block_runtime_corruption_detected = bool(
+            result.get("runtime_corruption_detected")
+        )
+        self.execution_block_execution_inconsistency_detected = bool(
+            result.get("execution_inconsistency_detected")
+        )
+        self.execution_block_continuation_unsafe_detected = bool(
+            result.get("continuation_unsafe_detected")
+        )
+        self.execution_block_preserved = bool(result.get("block_preserved"))
+        self.execution_block_escalation_report = dict(
+            result.get("escalation_report") or {}
+        )
         self.execution_block_modified_files = [
             str(path) for path in (result.get("modified_files") or [])
         ]
@@ -5984,6 +6022,34 @@ class RuntimeStatus:
             ),
             "human_authority_required": (
                 self.execution_block_human_authority_required
+            ),
+            "block_condition_detected": (
+                self.execution_block_condition_detected
+            ),
+            "governance_conflict_detected": (
+                self.execution_block_governance_conflict_detected
+            ),
+            "approval_missing_detected": (
+                self.execution_block_approval_missing_detected
+            ),
+            "audit_rejection_detected": (
+                self.execution_block_audit_rejection_detected
+            ),
+            "security_escalation_detected": (
+                self.execution_block_security_escalation_detected
+            ),
+            "runtime_corruption_detected": (
+                self.execution_block_runtime_corruption_detected
+            ),
+            "execution_inconsistency_detected": (
+                self.execution_block_execution_inconsistency_detected
+            ),
+            "continuation_unsafe_detected": (
+                self.execution_block_continuation_unsafe_detected
+            ),
+            "block_preserved": self.execution_block_preserved,
+            "escalation_report": dict(
+                self.execution_block_escalation_report
             ),
             "modified_files": list(self.execution_block_modified_files),
             "runtime_logs": [

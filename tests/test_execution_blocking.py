@@ -1,10 +1,15 @@
 from app.runner.approval_gate import ApprovalGate, ApprovalGateRequest
+from app.runner.approval_system import ApprovalSystem, ApprovalSystemRequest
 from app.runner.audit_request_system import AuditRequestInput, AuditRequestSystem
 from app.runner.audit_response_control import (
     AuditResponseControl,
     AuditResponseInput,
 )
 from app.runner.execution_blocking import ExecutionBlockRequest, ExecutionBlocking
+from app.runner.governance_foundation import (
+    GovernanceFoundation,
+    GovernanceFoundationRequest,
+)
 from app.runner.self_validation import SelfValidation, SelfValidationRequest
 from app.services.runtime_status import RuntimeStatus
 
@@ -117,6 +122,76 @@ def test_execution_blocking_activates_governance_block_for_pending_approval():
     assert result.escalation_status == "waiting_human_approval"
     assert result.continuation_status == "blocked_governance_authority"
     assert result.human_authority_required is True
+
+
+def test_execution_blocking_activates_approval_block_from_approval_system():
+    status = RuntimeStatus()
+    approval = ApprovalSystem().validate(
+        ApprovalSystemRequest(
+            authority_source="CEREBRO",
+            execution_id="execution-approval",
+            architecture_change=True,
+            governance_status="approved",
+        )
+    )
+    blocking = ExecutionBlocking(status=status)
+
+    result = blocking.activate(ExecutionBlockRequest(approval_system=approval))
+
+    assert result.status == "active"
+    assert result.block_type == "approval"
+    assert result.block_classification == "governance_block"
+    assert result.escalation_status == "approval_escalation_required"
+    assert result.continuation_status == "blocked_approval_authority"
+    assert result.approval_missing_detected is True
+    assert result.block_preserved is True
+
+    metrics = status.execution_blocking_metrics()
+    assert metrics["block_type"] == "approval"
+    assert metrics["approval_missing_detected"] is True
+    assert metrics["block_preserved"] is True
+
+
+def test_execution_blocking_activates_governance_block_from_foundation():
+    governance = GovernanceFoundation().validate(
+        GovernanceFoundationRequest(
+            authority_source="HERMES",
+            governance_type="approval",
+            execution_context={"execution_id": "execution-governance"},
+            approval_required=True,
+            approval_status="pending",
+        )
+    )
+    blocking = ExecutionBlocking()
+
+    result = blocking.activate(
+        ExecutionBlockRequest(governance_foundation=governance)
+    )
+
+    assert result.status == "active"
+    assert result.block_type == "governance"
+    assert result.block_classification == "governance_block"
+    assert result.governance_conflict_detected is True
+    assert result.context_preserved is True
+
+
+def test_execution_blocking_blocks_unsafe_continuation_and_preserves_block():
+    blocking = ExecutionBlocking()
+
+    result = blocking.activate(
+        ExecutionBlockRequest(
+            execution_id="execution-continuation",
+            continuation_status="unsafe",
+            override_block_requested=True,
+            minimize_risk_requested=True,
+        )
+    )
+
+    assert result.status == "active"
+    assert result.block_type == "continuation"
+    assert result.continuation_status == "blocked_unsafe_continuation"
+    assert result.continuation_unsafe_detected is True
+    assert result.block_preserved is False
 
 
 def test_execution_blocking_activates_temporary_provider_block():
