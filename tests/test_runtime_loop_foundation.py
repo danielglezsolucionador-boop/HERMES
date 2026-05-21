@@ -6,6 +6,10 @@ from app.runner.runtime_loop import RuntimeLoop
 from app.services.runtime_status import RuntimeStatus
 
 
+async def no_pending_tasks() -> int:
+    return 0
+
+
 @pytest.mark.asyncio
 async def test_runtime_loop_heartbeat_pause_resume_and_stop():
     status = RuntimeStatus()
@@ -14,6 +18,7 @@ async def test_runtime_loop_heartbeat_pause_resume_and_stop():
         interval_seconds=0.01,
         min_interval_seconds=0.01,
         heartbeat_log_every=1000,
+        pending_task_counter=no_pending_tasks,
     )
 
     task = asyncio.create_task(loop.run())
@@ -53,6 +58,7 @@ async def test_runtime_loop_survives_cycle_error_without_busy_loop():
                 interval_seconds=0.01,
                 min_interval_seconds=0.01,
                 heartbeat_log_every=1000,
+                pending_task_counter=no_pending_tasks,
             )
             self.calls = 0
 
@@ -74,3 +80,84 @@ async def test_runtime_loop_survives_cycle_error_without_busy_loop():
     assert metrics["iteration"] > 1
     assert metrics["interval_seconds"] == 0.01
     assert metrics["stop_reason"] == "test_stop"
+
+
+@pytest.mark.asyncio
+async def test_runtime_loop_polling_detects_pending_tasks():
+    async def three_pending_tasks() -> int:
+        return 3
+
+    status = RuntimeStatus()
+    loop = RuntimeLoop(
+        status=status,
+        interval_seconds=0.01,
+        min_interval_seconds=0.01,
+        heartbeat_log_every=1000,
+        pending_task_counter=three_pending_tasks,
+    )
+
+    task = asyncio.create_task(loop.run())
+    await asyncio.sleep(0.03)
+    loop.request_stop("test_stop")
+    await asyncio.wait_for(task, timeout=1)
+
+    polling = status.polling_metrics()
+    assert polling["last_poll_time"] is not None
+    assert polling["polling_iteration"] > 0
+    assert polling["tasks_detected"] == 3
+    assert polling["polling_status"] == "stopped"
+    assert polling["polling_errors"] == 0
+
+
+@pytest.mark.asyncio
+async def test_runtime_loop_polling_handles_empty_queue():
+    status = RuntimeStatus()
+    loop = RuntimeLoop(
+        status=status,
+        interval_seconds=0.01,
+        min_interval_seconds=0.01,
+        heartbeat_log_every=1000,
+        pending_task_counter=no_pending_tasks,
+    )
+
+    task = asyncio.create_task(loop.run())
+    await asyncio.sleep(0.03)
+    polling_during_run = status.polling_metrics()
+    loop.request_stop("test_stop")
+    await asyncio.wait_for(task, timeout=1)
+
+    assert polling_during_run["tasks_detected"] == 0
+    assert polling_during_run["polling_status"] == "idle"
+    assert polling_during_run["polling_errors"] == 0
+
+
+@pytest.mark.asyncio
+async def test_runtime_loop_polling_error_is_contained():
+    calls = 0
+
+    async def fails_once_then_empty() -> int:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("simulated polling failure")
+        return 0
+
+    status = RuntimeStatus()
+    loop = RuntimeLoop(
+        status=status,
+        interval_seconds=0.01,
+        min_interval_seconds=0.01,
+        heartbeat_log_every=1000,
+        pending_task_counter=fails_once_then_empty,
+    )
+
+    task = asyncio.create_task(loop.run())
+    await asyncio.sleep(0.04)
+    loop.request_stop("test_stop")
+    await asyncio.wait_for(task, timeout=1)
+
+    polling = status.polling_metrics()
+    assert calls > 1
+    assert polling["polling_iteration"] > 1
+    assert polling["tasks_detected"] == 0
+    assert polling["polling_errors"] == 1

@@ -41,6 +41,15 @@ class RuntimeStatus:
         self.runtime_loop_stop_requested = False
         self.runtime_loop_stop_reason: str | None = None
         self.runtime_loop_interval_seconds = 0.0
+        self.polling_started_at: datetime | None = None
+        self.last_poll_time: datetime | None = None
+        self.polling_iteration = 0
+        self.tasks_detected = 0
+        self.polling_status = "stopped"
+        self.polling_interval_seconds = 0.0
+        self.polling_last_duration_ms = 0
+        self.polling_errors = 0
+        self.polling_last_error: str | None = None
 
     def mark_started(self) -> None:
         self.runner_started_at = datetime.now(timezone.utc)
@@ -151,6 +160,35 @@ class RuntimeStatus:
         self.runtime_loop_state = "stopped"
         self.runtime_loop_stop_requested = True
         self.runtime_loop_stop_reason = reason
+        self.polling_status = "stopped"
+
+    def mark_polling_started(self, interval_seconds: float) -> None:
+        self.polling_started_at = datetime.now(timezone.utc)
+        self.polling_status = "active"
+        self.polling_interval_seconds = interval_seconds
+        self.polling_last_error = None
+
+    def mark_polling_completed(
+        self,
+        tasks_detected: int,
+        duration_ms: int,
+    ) -> None:
+        self.last_poll_time = datetime.now(timezone.utc)
+        self.polling_iteration += 1
+        self.tasks_detected = max(0, int(tasks_detected or 0))
+        self.polling_last_duration_ms = max(0, int(duration_ms or 0))
+        self.polling_status = (
+            "tasks_detected" if self.tasks_detected > 0 else "idle"
+        )
+        self.polling_last_error = None
+
+    def mark_polling_error(self, error: str, duration_ms: int = 0) -> None:
+        self.last_poll_time = datetime.now(timezone.utc)
+        self.polling_iteration += 1
+        self.polling_last_duration_ms = max(0, int(duration_ms or 0))
+        self.polling_errors += 1
+        self.polling_status = "error"
+        self.polling_last_error = error or "unknown_polling_error"
 
     def ai_metrics(self) -> dict:
         avg_duration = 0
@@ -235,6 +273,22 @@ class RuntimeStatus:
             "stop_reason": self.runtime_loop_stop_reason,
         }
 
+    def polling_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "started_at": fmt(self.polling_started_at),
+            "last_poll_time": fmt(self.last_poll_time),
+            "polling_iteration": self.polling_iteration,
+            "tasks_detected": self.tasks_detected,
+            "polling_status": self.polling_status,
+            "polling_interval_seconds": self.polling_interval_seconds,
+            "polling_last_duration_ms": self.polling_last_duration_ms,
+            "polling_errors": self.polling_errors,
+            "polling_last_error": self.polling_last_error,
+        }
+
     def to_dict(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -252,6 +306,7 @@ class RuntimeStatus:
             "total_success": self.total_success,
             "total_failed": self.total_failed,
             "runtime_loop": self.runtime_loop_metrics(),
+            "polling": self.polling_metrics(),
         }
         data.update(self.ai_metrics())
         data.update(self.telegram_metrics())

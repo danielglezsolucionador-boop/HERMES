@@ -7,7 +7,14 @@ It does not pick up, lock, execute, or retry tasks.
 import asyncio
 import logging
 import time
+from collections.abc import Awaitable, Callable
 
+from sqlalchemy import func, select
+
+from app.core.config import settings
+from app.db.engine import AsyncSessionLocal
+from app.models.task import Task
+from app.schemas.task import TaskStatus
 from app.services.runtime_status import RuntimeStatus, runtime_status
 
 logger = logging.getLogger(__name__)
@@ -21,15 +28,18 @@ class RuntimeLoop:
     def __init__(
         self,
         status: RuntimeStatus = runtime_status,
-        interval_seconds: float = DEFAULT_RUNTIME_LOOP_INTERVAL_SECONDS,
-        min_interval_seconds: float = MIN_RUNTIME_LOOP_INTERVAL_SECONDS,
+        interval_seconds: float = settings.RUNTIME_LOOP_INTERVAL_SECONDS,
+        min_interval_seconds: float = settings.RUNTIME_LOOP_MIN_INTERVAL_SECONDS,
         heartbeat_log_every: int = HEARTBEAT_LOG_EVERY,
+        pending_task_counter: Callable[[], Awaitable[int]] | None = None,
     ) -> None:
         self.status = status
         self.interval_seconds = max(float(interval_seconds), float(min_interval_seconds))
         self.heartbeat_log_every = max(1, int(heartbeat_log_every))
+        self.pending_task_counter = pending_task_counter or self._count_pending_tasks
         self._stop_requested = False
         self._paused = False
+        self._last_logged_tasks_detected: int | None = None
 
     def pause(self) -> None:
         self._paused = True
@@ -49,15 +59,39 @@ class RuntimeLoop:
         if self._paused:
             self.status.mark_runtime_loop_paused()
             return "paused"
+        poll_started = time.perf_counter()
+        tasks_detected = await self.pending_task_counter()
+        poll_duration_ms = int((time.perf_counter() - poll_started) * 1000)
+        self.status.mark_polling_completed(
+            tasks_detected=tasks_detected,
+            duration_ms=poll_duration_ms,
+        )
+        if (
+            tasks_detected > 0
+            and tasks_detected != self._last_logged_tasks_detected
+        ):
+            logger.info("runtime_loop: tasks detected pending=%s", tasks_detected)
+            self._last_logged_tasks_detected = tasks_detected
         return "active"
+
+    async def _count_pending_tasks(self) -> int:
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(func.count(Task.id)).where(
+                    Task.status == TaskStatus.pending.value
+                )
+            )
+            return int(result.scalar_one() or 0)
 
     async def run(self) -> None:
         self._stop_requested = False
         self.status.mark_runtime_loop_started(self.interval_seconds)
+        self.status.mark_polling_started(self.interval_seconds)
         logger.info(
             "runtime_loop: started interval_seconds=%s",
             self.interval_seconds,
         )
+        logger.info("runtime_loop: polling started")
 
         stop_reason = "stopped"
         try:
@@ -71,6 +105,10 @@ class RuntimeLoop:
                     raise
                 except Exception as exc:
                     state = "recovering"
+                    poll_duration_ms = int(
+                        (time.perf_counter() - cycle_started) * 1000
+                    )
+                    self.status.mark_polling_error(str(exc), poll_duration_ms)
                     logger.error("runtime_loop: cycle error survived error=%s", exc)
 
                 duration_ms = int((time.perf_counter() - cycle_started) * 1000)
@@ -85,6 +123,13 @@ class RuntimeLoop:
                         iteration,
                         state,
                         duration_ms,
+                    )
+                    logger.info(
+                        "runtime_loop: polling completed iteration=%s status=%s tasks_detected=%s duration_ms=%s",
+                        self.status.polling_iteration,
+                        self.status.polling_status,
+                        self.status.tasks_detected,
+                        self.status.polling_last_duration_ms,
                     )
 
                 await asyncio.sleep(self.interval_seconds)
