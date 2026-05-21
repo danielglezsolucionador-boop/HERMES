@@ -457,6 +457,30 @@ class RuntimeStatus:
         self.prompt_execution_reasons: list[str] = []
         self.prompt_execution_last_error: str | None = None
         self.prompt_execution_lifecycle: list[dict] = []
+        self.last_provider_response_handling_at: datetime | None = None
+        self.provider_response_handling_iteration = 0
+        self.provider_response_handling_status = "stopped"
+        self.provider_response_status: str | None = None
+        self.provider_response_type: str | None = None
+        self.provider_responses_handled = 0
+        self.provider_responses_rejected = 0
+        self.provider_responses_failed = 0
+        self.last_provider_response_handling_id: str | None = None
+        self.last_provider_response_id: str | None = None
+        self.provider_response_provider_id: str | None = None
+        self.provider_response_request_id: str | None = None
+        self.provider_response_execution_id: str | None = None
+        self.provider_response_task_id: str | None = None
+        self.provider_response_validation_status: str | None = None
+        self.provider_response_audit_status = "not_ready"
+        self.provider_response_output_available = False
+        self.provider_response_output_size_bytes = 0
+        self.provider_response_storage_prepared = False
+        self.provider_response_duration_ms = 0
+        self.provider_response_audit_package: dict = {}
+        self.provider_response_reasons: list[str] = []
+        self.provider_response_last_error: str | None = None
+        self.provider_response_lifecycle: list[dict] = []
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -2093,6 +2117,55 @@ class RuntimeStatus:
         else:
             self.prompt_executions_failed += 1
 
+    def mark_provider_response_handling_result(self, result: dict) -> None:
+        self.last_provider_response_handling_at = datetime.now(timezone.utc)
+        self.provider_response_handling_iteration += 1
+        self.provider_response_handling_status = result.get("status") or "unknown"
+        self.provider_response_status = result.get("response_status")
+        self.provider_response_type = result.get("response_type")
+        self.last_provider_response_handling_id = result.get("handling_id")
+        self.last_provider_response_id = result.get("response_id")
+        self.provider_response_provider_id = result.get("provider_id")
+        self.provider_response_request_id = result.get("provider_request_id")
+        self.provider_response_execution_id = result.get("execution_id")
+        self.provider_response_task_id = result.get("task_id")
+        self.provider_response_validation_status = result.get("validation_status")
+        self.provider_response_audit_status = (
+            result.get("audit_status") or "not_ready"
+        )
+        self.provider_response_output_available = bool(
+            result.get("output_available")
+        )
+        self.provider_response_output_size_bytes = max(
+            0,
+            int(result.get("output_size_bytes") or 0),
+        )
+        self.provider_response_storage_prepared = bool(
+            result.get("storage_prepared")
+        )
+        self.provider_response_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.provider_response_audit_package = dict(
+            result.get("audit_package") or {}
+        )
+        self.provider_response_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.provider_response_last_error = result.get("error")
+        self.provider_response_lifecycle = [
+            dict(entry)
+            for entry in (result.get("lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        if self.provider_response_handling_status == "handled":
+            self.provider_responses_handled += 1
+        elif self.provider_response_handling_status == "rejected":
+            self.provider_responses_rejected += 1
+        else:
+            self.provider_responses_failed += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -3130,6 +3203,43 @@ class RuntimeStatus:
             "lifecycle": [dict(entry) for entry in self.prompt_execution_lifecycle],
         }
 
+    def provider_response_handling_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_provider_response_handling_at": fmt(
+                self.last_provider_response_handling_at
+            ),
+            "provider_response_handling_iteration": (
+                self.provider_response_handling_iteration
+            ),
+            "provider_response_handling_status": (
+                self.provider_response_handling_status
+            ),
+            "response_status": self.provider_response_status,
+            "response_type": self.provider_response_type,
+            "provider_responses_handled": self.provider_responses_handled,
+            "provider_responses_rejected": self.provider_responses_rejected,
+            "provider_responses_failed": self.provider_responses_failed,
+            "handling_id": self.last_provider_response_handling_id,
+            "response_id": self.last_provider_response_id,
+            "provider_id": self.provider_response_provider_id,
+            "provider_request_id": self.provider_response_request_id,
+            "execution_id": self.provider_response_execution_id,
+            "task_id": self.provider_response_task_id,
+            "validation_status": self.provider_response_validation_status,
+            "audit_status": self.provider_response_audit_status,
+            "output_available": self.provider_response_output_available,
+            "output_size_bytes": self.provider_response_output_size_bytes,
+            "storage_prepared": self.provider_response_storage_prepared,
+            "duration_ms": self.provider_response_duration_ms,
+            "audit_package": dict(self.provider_response_audit_package),
+            "reasons": list(self.provider_response_reasons),
+            "last_error": self.provider_response_last_error,
+            "lifecycle": [dict(entry) for entry in self.provider_response_lifecycle],
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -3321,6 +3431,9 @@ class RuntimeStatus:
             "orchestration_safety": self.orchestration_safety_metrics(),
             "provider_bridge": self.provider_bridge_metrics(),
             "prompt_execution": self.prompt_execution_metrics(),
+            "provider_response_handling": (
+                self.provider_response_handling_metrics()
+            ),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
             "response_safety": self.response_safety_metrics(),
