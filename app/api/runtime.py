@@ -69,6 +69,7 @@ async def runtime_status(session: AsyncSession = Depends(get_session)):
         checkpoint_recovery_metrics = (
             runner_runtime_status.checkpoint_recovery_metrics()
         )
+        execution_resume_metrics = runner_runtime_status.execution_resume_metrics()
         response_ingestion_metrics = runner_runtime_status.response_ingestion_metrics()
         response_validation_metrics = runner_runtime_status.response_validation_metrics()
         response_safety_metrics = runner_runtime_status.response_safety_metrics()
@@ -113,6 +114,7 @@ async def runtime_status(session: AsyncSession = Depends(get_session)):
             "execution_blocking": execution_blocking_metrics,
             "phase_continuation": phase_continuation_metrics,
             "checkpoint_recovery": checkpoint_recovery_metrics,
+            "execution_resume": execution_resume_metrics,
             "response_ingestion": response_ingestion_metrics,
             "response_validation": response_validation_metrics,
             "response_safety": response_safety_metrics,

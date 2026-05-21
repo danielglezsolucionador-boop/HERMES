@@ -774,6 +774,49 @@ class RuntimeStatus:
         self.checkpoint_recovery_reasons: list[str] = []
         self.checkpoint_recovery_last_error: str | None = None
         self.checkpoint_recovery_metadata: dict = {}
+        self.last_execution_resume_at: datetime | None = None
+        self.execution_resume_iteration = 0
+        self.execution_resume_status = "stopped"
+        self.execution_resumes_completed = 0
+        self.execution_resumes_blocked = 0
+        self.execution_resume_errors = 0
+        self.last_resume_id: str | None = None
+        self.resume_execution_id: str | None = None
+        self.resume_task_id: str | None = None
+        self.resume_checkpoint_id: str | None = None
+        self.resume_type: str | None = None
+        self.resume_governance_status: str | None = None
+        self.resume_audit_status: str | None = None
+        self.resume_state: str | None = None
+        self.resume_continuation_status: str | None = None
+        self.resume_runtime_stable = False
+        self.resume_checkpoint_valid = False
+        self.resume_execution_consistent = False
+        self.resume_governance_satisfied = False
+        self.resume_audit_satisfied = False
+        self.resume_workflow_continuity_preserved = False
+        self.resume_execution_reactivated = False
+        self.resume_context_restored = False
+        self.resume_context_preserved = False
+        self.resume_traceability_preserved = False
+        self.resume_provider_context_restored = False
+        self.resume_restored_state: dict = {}
+        self.resume_execution_context: dict = {}
+        self.resume_lifecycle_state: dict = {}
+        self.resume_runtime_state: dict = {}
+        self.resume_governance_state: dict = {}
+        self.resume_audit_state: dict = {}
+        self.resume_provider_state: dict = {}
+        self.resume_lifecycle_history: list[dict] = []
+        self.resume_audit_history: list[dict] = []
+        self.resume_governance_history: list[dict] = []
+        self.resume_recovery_history: list[dict] = []
+        self.resume_modified_files: list[str] = []
+        self.resume_lifecycle: list[dict] = []
+        self.execution_resume_duration_ms = 0
+        self.execution_resume_reasons: list[str] = []
+        self.execution_resume_last_error: str | None = None
+        self.execution_resume_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -3104,6 +3147,96 @@ class RuntimeStatus:
         else:
             self.checkpoint_recovery_errors += 1
 
+    def mark_execution_resume_result(self, result: dict) -> None:
+        self.last_execution_resume_at = datetime.now(timezone.utc)
+        self.execution_resume_iteration += 1
+        self.execution_resume_status = result.get("status") or "unknown"
+        self.last_resume_id = result.get("resume_id")
+        self.resume_execution_id = result.get("execution_id")
+        self.resume_task_id = result.get("task_id")
+        self.resume_checkpoint_id = result.get("checkpoint_id")
+        self.resume_type = result.get("resume_type")
+        self.resume_governance_status = result.get("governance_status")
+        self.resume_audit_status = result.get("audit_status")
+        self.resume_state = result.get("resume_status")
+        self.resume_continuation_status = result.get("continuation_status")
+        self.resume_runtime_stable = bool(result.get("runtime_stable"))
+        self.resume_checkpoint_valid = bool(result.get("checkpoint_valid"))
+        self.resume_execution_consistent = bool(
+            result.get("execution_consistent")
+        )
+        self.resume_governance_satisfied = bool(
+            result.get("governance_satisfied")
+        )
+        self.resume_audit_satisfied = bool(result.get("audit_satisfied"))
+        self.resume_workflow_continuity_preserved = bool(
+            result.get("workflow_continuity_preserved")
+        )
+        self.resume_execution_reactivated = bool(
+            result.get("execution_reactivated")
+        )
+        self.resume_context_restored = bool(result.get("context_restored"))
+        self.resume_context_preserved = bool(result.get("context_preserved"))
+        self.resume_traceability_preserved = bool(
+            result.get("traceability_preserved")
+        )
+        self.resume_provider_context_restored = bool(
+            result.get("provider_context_restored")
+        )
+        self.resume_restored_state = dict(result.get("restored_state") or {})
+        self.resume_execution_context = dict(
+            result.get("execution_context") or {}
+        )
+        self.resume_lifecycle_state = dict(result.get("lifecycle_state") or {})
+        self.resume_runtime_state = dict(result.get("runtime_state") or {})
+        self.resume_governance_state = dict(result.get("governance_state") or {})
+        self.resume_audit_state = dict(result.get("audit_state") or {})
+        self.resume_provider_state = dict(result.get("provider_state") or {})
+        self.resume_lifecycle_history = [
+            dict(entry)
+            for entry in (result.get("lifecycle_history") or [])
+            if isinstance(entry, dict)
+        ]
+        self.resume_audit_history = [
+            dict(entry)
+            for entry in (result.get("audit_history") or [])
+            if isinstance(entry, dict)
+        ]
+        self.resume_governance_history = [
+            dict(entry)
+            for entry in (result.get("governance_history") or [])
+            if isinstance(entry, dict)
+        ]
+        self.resume_recovery_history = [
+            dict(entry)
+            for entry in (result.get("recovery_history") or [])
+            if isinstance(entry, dict)
+        ]
+        self.resume_modified_files = [
+            str(path) for path in (result.get("modified_files") or [])
+        ]
+        self.resume_lifecycle = [
+            dict(entry)
+            for entry in (result.get("resume_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.execution_resume_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.execution_resume_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.execution_resume_last_error = result.get("error")
+        self.execution_resume_metadata = dict(result.get("metadata") or {})
+
+        if self.execution_resume_status == "resumed":
+            self.execution_resumes_completed += 1
+        elif self.execution_resume_status == "blocked":
+            self.execution_resumes_blocked += 1
+        else:
+            self.execution_resume_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -4633,6 +4766,68 @@ class RuntimeStatus:
             "metadata": dict(self.checkpoint_recovery_metadata),
         }
 
+    def execution_resume_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_execution_resume_at": fmt(self.last_execution_resume_at),
+            "execution_resume_iteration": self.execution_resume_iteration,
+            "execution_resume_status": self.execution_resume_status,
+            "execution_resumes_completed": self.execution_resumes_completed,
+            "execution_resumes_blocked": self.execution_resumes_blocked,
+            "execution_resume_errors": self.execution_resume_errors,
+            "resume_id": self.last_resume_id,
+            "execution_id": self.resume_execution_id,
+            "task_id": self.resume_task_id,
+            "checkpoint_id": self.resume_checkpoint_id,
+            "resume_type": self.resume_type,
+            "governance_status": self.resume_governance_status,
+            "audit_status": self.resume_audit_status,
+            "resume_status": self.resume_state,
+            "continuation_status": self.resume_continuation_status,
+            "runtime_stable": self.resume_runtime_stable,
+            "checkpoint_valid": self.resume_checkpoint_valid,
+            "execution_consistent": self.resume_execution_consistent,
+            "governance_satisfied": self.resume_governance_satisfied,
+            "audit_satisfied": self.resume_audit_satisfied,
+            "workflow_continuity_preserved": (
+                self.resume_workflow_continuity_preserved
+            ),
+            "execution_reactivated": self.resume_execution_reactivated,
+            "context_restored": self.resume_context_restored,
+            "context_preserved": self.resume_context_preserved,
+            "traceability_preserved": self.resume_traceability_preserved,
+            "provider_context_restored": self.resume_provider_context_restored,
+            "restored_state": dict(self.resume_restored_state),
+            "execution_context": dict(self.resume_execution_context),
+            "lifecycle_state": dict(self.resume_lifecycle_state),
+            "runtime_state": dict(self.resume_runtime_state),
+            "governance_state": dict(self.resume_governance_state),
+            "audit_state": dict(self.resume_audit_state),
+            "provider_state": dict(self.resume_provider_state),
+            "lifecycle_history": [
+                dict(entry) for entry in self.resume_lifecycle_history
+            ],
+            "audit_history": [
+                dict(entry) for entry in self.resume_audit_history
+            ],
+            "governance_history": [
+                dict(entry) for entry in self.resume_governance_history
+            ],
+            "recovery_history": [
+                dict(entry) for entry in self.resume_recovery_history
+            ],
+            "modified_files": list(self.resume_modified_files),
+            "resume_lifecycle": [
+                dict(entry) for entry in self.resume_lifecycle
+            ],
+            "duration_ms": self.execution_resume_duration_ms,
+            "reasons": list(self.execution_resume_reasons),
+            "last_error": self.execution_resume_last_error,
+            "metadata": dict(self.execution_resume_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -4836,6 +5031,7 @@ class RuntimeStatus:
             "execution_blocking": self.execution_blocking_metrics(),
             "phase_continuation": self.phase_continuation_metrics(),
             "checkpoint_recovery": self.checkpoint_recovery_metrics(),
+            "execution_resume": self.execution_resume_metrics(),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
             "response_safety": self.response_safety_metrics(),
