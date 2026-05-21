@@ -542,6 +542,32 @@ class RuntimeStatus:
         self.provider_routing_reasons: list[str] = []
         self.provider_routing_last_error: str | None = None
         self.provider_routing_metadata: dict = {}
+        self.last_self_validation_at: datetime | None = None
+        self.self_validation_iteration = 0
+        self.self_validation_status = "stopped"
+        self.self_validations_valid = 0
+        self.self_validations_warning = 0
+        self.self_validations_invalid = 0
+        self.self_validation_errors = 0
+        self.last_self_validation_id: str | None = None
+        self.self_validation_execution_id: str | None = None
+        self.self_validation_task_id: str | None = None
+        self.self_validation_risk_status: str | None = None
+        self.self_validation_audit_required = False
+        self.self_validation_self_approved = False
+        self.self_validation_continuation_blocked = False
+        self.self_validation_runtime_protected = True
+        self.self_validation_modified_files: list[str] = []
+        self.self_validation_logs: list[dict] = []
+        self.self_validation_detected_risks: list[str] = []
+        self.self_validation_inconsistencies: list[str] = []
+        self.self_validation_audit_package: dict = {}
+        self.self_validation_output_count = 0
+        self.self_validation_response_count = 0
+        self.self_validation_duration_ms = 0
+        self.self_validation_reasons: list[str] = []
+        self.self_validation_last_error: str | None = None
+        self.self_validation_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -2356,6 +2382,67 @@ class RuntimeStatus:
         else:
             self.provider_routing_errors += 1
 
+    def mark_self_validation_result(self, result: dict) -> None:
+        self.last_self_validation_at = datetime.now(timezone.utc)
+        self.self_validation_iteration += 1
+        self.self_validation_status = result.get("validation_status") or (
+            result.get("status") or "unknown"
+        )
+        self.last_self_validation_id = result.get("validation_id")
+        self.self_validation_execution_id = result.get("execution_id")
+        self.self_validation_task_id = result.get("task_id")
+        self.self_validation_risk_status = result.get("risk_status")
+        self.self_validation_audit_required = bool(result.get("audit_required"))
+        self.self_validation_self_approved = bool(result.get("self_approved"))
+        self.self_validation_continuation_blocked = bool(
+            result.get("continuation_blocked")
+        )
+        self.self_validation_runtime_protected = bool(
+            result.get("runtime_protected")
+        )
+        self.self_validation_modified_files = [
+            str(path) for path in (result.get("modified_files") or [])
+        ]
+        self.self_validation_logs = [
+            dict(log)
+            for log in (result.get("validation_logs") or [])
+            if isinstance(log, dict)
+        ]
+        self.self_validation_detected_risks = [
+            str(risk) for risk in (result.get("detected_risks") or [])
+        ]
+        self.self_validation_inconsistencies = [
+            str(item) for item in (result.get("inconsistencies") or [])
+        ]
+        self.self_validation_audit_package = dict(
+            result.get("audit_package") or {}
+        )
+        self.self_validation_output_count = max(
+            0,
+            int(result.get("output_count") or 0),
+        )
+        self.self_validation_response_count = max(
+            0,
+            int(result.get("response_count") or 0),
+        )
+        self.self_validation_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.self_validation_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.self_validation_last_error = result.get("error")
+        self.self_validation_metadata = dict(result.get("metadata") or {})
+        if self.self_validation_status == "valid":
+            self.self_validations_valid += 1
+        elif self.self_validation_status == "warning":
+            self.self_validations_warning += 1
+        elif self.self_validation_status == "invalid":
+            self.self_validations_invalid += 1
+        else:
+            self.self_validation_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -3526,6 +3613,43 @@ class RuntimeStatus:
             "metadata": dict(self.provider_routing_metadata),
         }
 
+    def self_validation_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_self_validation_at": fmt(self.last_self_validation_at),
+            "self_validation_iteration": self.self_validation_iteration,
+            "self_validation_status": self.self_validation_status,
+            "self_validations_valid": self.self_validations_valid,
+            "self_validations_warning": self.self_validations_warning,
+            "self_validations_invalid": self.self_validations_invalid,
+            "self_validation_errors": self.self_validation_errors,
+            "validation_id": self.last_self_validation_id,
+            "execution_id": self.self_validation_execution_id,
+            "task_id": self.self_validation_task_id,
+            "risk_status": self.self_validation_risk_status,
+            "audit_required": self.self_validation_audit_required,
+            "self_approved": self.self_validation_self_approved,
+            "continuation_blocked": (
+                self.self_validation_continuation_blocked
+            ),
+            "runtime_protected": self.self_validation_runtime_protected,
+            "modified_files": list(self.self_validation_modified_files),
+            "validation_logs": [
+                dict(log) for log in self.self_validation_logs
+            ],
+            "detected_risks": list(self.self_validation_detected_risks),
+            "inconsistencies": list(self.self_validation_inconsistencies),
+            "audit_package": dict(self.self_validation_audit_package),
+            "output_count": self.self_validation_output_count,
+            "response_count": self.self_validation_response_count,
+            "duration_ms": self.self_validation_duration_ms,
+            "reasons": list(self.self_validation_reasons),
+            "last_error": self.self_validation_last_error,
+            "metadata": dict(self.self_validation_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -3722,6 +3846,7 @@ class RuntimeStatus:
             ),
             "provider_failure_control": self.provider_failure_control_metrics(),
             "provider_routing": self.provider_routing_metrics(),
+            "self_validation": self.self_validation_metrics(),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
             "response_safety": self.response_safety_metrics(),
