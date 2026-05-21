@@ -406,10 +406,13 @@ async def test_runtime_loop_initializes_orchestration_metrics():
     assert orchestration["orchestration_status"] == "idle"
     assert orchestration["orchestration_state"] == "ready"
     assert orchestration["dependency_state"] == "clear"
+    assert orchestration["coordination_state"] == "ready"
+    assert orchestration["dependency_status"] == "clear"
     assert orchestration["orchestration_iteration"] > 0
     assert orchestration["orchestrations_registered"] == 0
     assert orchestration["active_orchestrations"] == 0
     assert orchestration["max_active_orchestrations"] == 1
+    assert orchestration["max_dependency_chain"] == 10
     assert orchestration["runtime_protected"] is True
 
 

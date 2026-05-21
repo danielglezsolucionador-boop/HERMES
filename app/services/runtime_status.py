@@ -295,6 +295,7 @@ class RuntimeStatus:
         self.runtime_orchestration_load: float | None = None
         self.max_orchestration_load = 0.0
         self.max_execution_dependencies = 0
+        self.max_dependency_chain = 0
         self.max_orchestration_duration_ms = 0
         self.max_coordination_overhead_ms = 0
         self.last_orchestration_id: str | None = None
@@ -1360,6 +1361,7 @@ class RuntimeStatus:
         interval_seconds: float,
         max_active_orchestrations: int = 0,
         max_execution_dependencies: int = 0,
+        max_dependency_chain: int = 0,
         max_orchestration_duration_ms: int = 0,
         max_orchestration_load: float = 0.0,
         max_coordination_overhead_ms: int = 0,
@@ -1378,6 +1380,7 @@ class RuntimeStatus:
             0,
             int(max_execution_dependencies or 0),
         )
+        self.max_dependency_chain = max(0, int(max_dependency_chain or 0))
         self.max_orchestration_duration_ms = max(
             0,
             int(max_orchestration_duration_ms or 0),
@@ -1396,8 +1399,14 @@ class RuntimeStatus:
         self.last_orchestration_at = datetime.now(timezone.utc)
         self.orchestration_iteration += 1
         self.orchestration_status = result.get("status") or "unknown"
-        self.orchestration_state = result.get("orchestration_state")
-        self.dependency_state = result.get("dependency_state")
+        self.orchestration_state = (
+            result.get("orchestration_state")
+            or result.get("coordination_state")
+        )
+        self.dependency_state = (
+            result.get("dependency_state")
+            or result.get("dependency_status")
+        )
         self.orchestration_last_duration_ms = max(
             0,
             int(result.get("coordination_overhead_ms") or 0),
@@ -1438,6 +1447,10 @@ class RuntimeStatus:
             0,
             int(result.get("max_execution_dependencies") or 0),
         )
+        self.max_dependency_chain = max(
+            0,
+            int(result.get("max_dependency_chain") or 0),
+        )
         self.max_orchestration_duration_ms = max(
             0,
             int(result.get("max_orchestration_duration_ms") or 0),
@@ -1446,7 +1459,9 @@ class RuntimeStatus:
             0,
             int(result.get("max_coordination_overhead_ms") or 0),
         )
-        self.last_orchestration_id = result.get("orchestration_id")
+        self.last_orchestration_id = (
+            result.get("coordination_id") or result.get("orchestration_id")
+        )
         self.last_orchestration_execution_id = result.get("execution_id")
         self.last_orchestration_task_id = result.get("task_id")
         self.last_orchestration_runner_id = result.get("runner_id")
@@ -1456,7 +1471,11 @@ class RuntimeStatus:
         self.last_orchestration_task_status = result.get("task_status")
         self.last_orchestration_execution_order = max(
             0,
-            int(result.get("execution_order") or 0),
+            int(
+                result.get("execution_sequence")
+                or result.get("execution_order")
+                or 0
+            ),
         )
         self.last_orchestration_dependency_count = max(
             0,
@@ -2382,6 +2401,8 @@ class RuntimeStatus:
             "orchestration_status": self.orchestration_status,
             "orchestration_state": self.orchestration_state,
             "dependency_state": self.dependency_state,
+            "coordination_state": self.orchestration_state,
+            "dependency_status": self.dependency_state,
             "orchestration_interval_seconds": (
                 self.orchestration_interval_seconds
             ),
@@ -2407,11 +2428,13 @@ class RuntimeStatus:
             "runtime_orchestration_load": self.runtime_orchestration_load,
             "max_orchestration_load": self.max_orchestration_load,
             "max_execution_dependencies": self.max_execution_dependencies,
+            "max_dependency_chain": self.max_dependency_chain,
             "max_orchestration_duration_ms": (
                 self.max_orchestration_duration_ms
             ),
             "max_coordination_overhead_ms": self.max_coordination_overhead_ms,
             "orchestration_id": self.last_orchestration_id,
+            "coordination_id": self.last_orchestration_id,
             "execution_id": self.last_orchestration_execution_id,
             "task_id": self.last_orchestration_task_id,
             "runner_id": self.last_orchestration_runner_id,
@@ -2420,6 +2443,7 @@ class RuntimeStatus:
             "execution_state": self.last_orchestration_execution_state,
             "task_status": self.last_orchestration_task_status,
             "execution_order": self.last_orchestration_execution_order,
+            "execution_sequence": self.last_orchestration_execution_order,
             "dependency_count": self.last_orchestration_dependency_count,
             "coordination_started_at": self.last_coordination_started_at,
             "coordination_completed_at": self.last_coordination_completed_at,

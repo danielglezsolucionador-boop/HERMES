@@ -30,9 +30,12 @@ class OrchestrationResult:
     success: bool
     orchestration_state: str
     dependency_state: str
+    coordination_state: str
+    dependency_status: str
     coordination_allowed: bool
     runtime_protected: bool
     orchestration_registered: bool = False
+    coordination_registered: bool = False
     coordination_started: bool = False
     coordination_completed: bool = False
     execution_released: bool = False
@@ -40,7 +43,9 @@ class OrchestrationResult:
     linkage_valid: bool = True
     ownership_consistent: bool = True
     dependency_valid: bool = True
+    sequencing_valid: bool = True
     orchestration_id: str | None = None
+    coordination_id: str | None = None
     execution_id: str | None = None
     task_id: str | None = None
     runner_id: str | None = None
@@ -49,8 +54,10 @@ class OrchestrationResult:
     execution_state: str | None = None
     task_status: str | None = None
     execution_order: int = 0
+    execution_sequence: int = 0
     dependency_count: int = 0
     max_execution_dependencies: int = 0
+    max_dependency_chain: int = 0
     active_orchestrations: int = 0
     max_active_orchestrations: int = 0
     runtime_orchestration_load: float | None = None
@@ -73,9 +80,12 @@ class OrchestrationResult:
             "success": self.success,
             "orchestration_state": self.orchestration_state,
             "dependency_state": self.dependency_state,
+            "coordination_state": self.coordination_state,
+            "dependency_status": self.dependency_status,
             "coordination_allowed": self.coordination_allowed,
             "runtime_protected": self.runtime_protected,
             "orchestration_registered": self.orchestration_registered,
+            "coordination_registered": self.coordination_registered,
             "coordination_started": self.coordination_started,
             "coordination_completed": self.coordination_completed,
             "execution_released": self.execution_released,
@@ -83,7 +93,9 @@ class OrchestrationResult:
             "linkage_valid": self.linkage_valid,
             "ownership_consistent": self.ownership_consistent,
             "dependency_valid": self.dependency_valid,
+            "sequencing_valid": self.sequencing_valid,
             "orchestration_id": self.orchestration_id,
+            "coordination_id": self.coordination_id,
             "execution_id": self.execution_id,
             "task_id": self.task_id,
             "runner_id": self.runner_id,
@@ -92,8 +104,10 @@ class OrchestrationResult:
             "execution_state": self.execution_state,
             "task_status": self.task_status,
             "execution_order": self.execution_order,
+            "execution_sequence": self.execution_sequence,
             "dependency_count": self.dependency_count,
             "max_execution_dependencies": self.max_execution_dependencies,
+            "max_dependency_chain": self.max_dependency_chain,
             "active_orchestrations": self.active_orchestrations,
             "max_active_orchestrations": self.max_active_orchestrations,
             "runtime_orchestration_load": self.runtime_orchestration_load,
@@ -118,6 +132,7 @@ class OrchestrationRuntime:
         runtime_owner: str = f"{settings.RUNNER_ID}:{settings.RUNTIME_ID}",
         max_active_orchestrations: int = settings.ORCHESTRATION_MAX_ACTIVE,
         max_execution_dependencies: int = settings.ORCHESTRATION_MAX_DEPENDENCIES,
+        max_dependency_chain: int = settings.ORCHESTRATION_MAX_DEPENDENCY_CHAIN,
         max_orchestration_duration_ms: int = (
             settings.ORCHESTRATION_MAX_DURATION_MS
         ),
@@ -132,6 +147,10 @@ class OrchestrationRuntime:
         self.max_execution_dependencies = max(
             0,
             int(max_execution_dependencies or 0),
+        )
+        self.max_dependency_chain = max(
+            1,
+            int(max_dependency_chain or 1),
         )
         self.max_orchestration_duration_ms = max(
             1,
@@ -168,6 +187,62 @@ class OrchestrationRuntime:
             coordination_permitted=coordination_permitted,
             metadata=metadata,
         )
+
+    async def coordinate(
+        self,
+        execution_context: Any | None = None,
+        execution_result: Any | None = None,
+        task: Task | dict[str, Any] | None = None,
+        dependencies: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
+        execution_order: int | None = None,
+        runtime_active: bool = True,
+        coordination_permitted: bool = True,
+        metadata: dict[str, Any] | None = None,
+    ) -> OrchestrationResult:
+        registered: OrchestrationResult | None = None
+        try:
+            flow_metadata = dict(metadata or {})
+            flow_metadata.setdefault("coordination_flow", "queued")
+            registered = self.evaluate(
+                execution_context=execution_context,
+                execution_result=execution_result,
+                task=task,
+                dependencies=dependencies,
+                execution_order=execution_order,
+                runtime_active=runtime_active,
+                coordination_permitted=coordination_permitted,
+                metadata=flow_metadata,
+            )
+            if registered.status != "registered":
+                return registered
+
+            coordinating = self.start(registered)
+            if coordinating.status != "coordinating":
+                return coordinating
+            return self.release(coordinating)
+        except Exception as exc:
+            if (
+                registered is not None
+                and registered.status in ORCHESTRATION_ACTIVE_STATES
+            ):
+                self._active_orchestrations = max(
+                    0,
+                    self._active_orchestrations - 1,
+                )
+            result = self._result(
+                status="error",
+                success=False,
+                orchestration_state="error",
+                dependency_state="unknown",
+                coordination_allowed=False,
+                runtime_protected=True,
+                reasons=["coordination_error_contained"],
+                error=str(exc),
+                metadata=metadata,
+                started=None,
+            )
+            self._log_result(result)
+            return result
 
     def evaluate(
         self,
@@ -221,7 +296,7 @@ class OrchestrationRuntime:
                 return result
 
             reasons.extend(self._context_reasons(context))
-            reasons.extend(self._dependency_reasons(dependency_data))
+            reasons.extend(self._dependency_reasons(dependency_data, context))
             reasons.extend(self._limit_reasons(context, dependency_data, started))
             unique_reasons = self._unique(reasons)
             if unique_reasons:
@@ -242,6 +317,7 @@ class OrchestrationRuntime:
 
             self._active_orchestrations += 1
             active_registered = True
+            coordination_id = str(uuid4())
             result = self._result(
                 status="registered",
                 success=True,
@@ -249,7 +325,7 @@ class OrchestrationRuntime:
                 dependency_state=self._dependency_state(dependency_data),
                 coordination_allowed=True,
                 orchestration_registered=True,
-                orchestration_id=str(uuid4()),
+                orchestration_id=coordination_id,
                 context=context,
                 dependencies=dependency_data,
                 metadata=metadata,
@@ -290,6 +366,7 @@ class OrchestrationRuntime:
             result,
             status="coordinating",
             orchestration_state="coordinating",
+            coordination_state="coordinating",
             coordination_started=True,
             coordination_started_at=datetime.now(timezone.utc).isoformat(),
             active_orchestrations=self._active_orchestrations,
@@ -329,6 +406,7 @@ class OrchestrationRuntime:
             "runtime_orchestration_load": self._runtime_orchestration_load(),
             "max_orchestration_load": self.max_orchestration_load,
             "max_execution_dependencies": self.max_execution_dependencies,
+            "max_dependency_chain": self.max_dependency_chain,
             "max_orchestration_duration_ms": self.max_orchestration_duration_ms,
             "max_coordination_overhead_ms": self.max_coordination_overhead_ms,
             "runtime_owner": self.runtime_owner,
@@ -363,8 +441,10 @@ class OrchestrationRuntime:
             status=status,
             success=success,
             orchestration_state=orchestration_state,
+            coordination_state=orchestration_state,
             coordination_allowed=success,
             orchestration_registered=False,
+            coordination_registered=False,
             coordination_completed=coordination_completed,
             execution_released=execution_released,
             coordination_completed_at=completed_at,
@@ -387,6 +467,7 @@ class OrchestrationRuntime:
             status="rejected",
             success=False,
             orchestration_state="rejected",
+            coordination_state="rejected",
             coordination_allowed=False,
             reasons=tuple(self._unique(list(result.reasons) + [reason])),
         )
@@ -444,22 +525,48 @@ class OrchestrationRuntime:
             reasons.append("invalid_execution_order")
         return reasons
 
-    def _dependency_reasons(self, dependencies: list[dict[str, Any]]) -> list[str]:
+    def _dependency_reasons(
+        self,
+        dependencies: list[dict[str, Any]],
+        context: dict[str, Any],
+    ) -> list[str]:
         reasons: list[str] = []
+        seen_dependencies: set[str] = set()
+        current_execution_id = context.get("execution_id")
+        current_task_id = context.get("task_id")
+        current_order = self._int(context.get("execution_order"), 0)
         for dependency in dependencies:
-            if not (
-                dependency.get("dependency_id")
-                or dependency.get("execution_id")
-                or dependency.get("task_id")
-            ):
+            dependency_key = self._dependency_key(dependency)
+            if not dependency_key:
                 reasons.append("orphan_dependency")
+            elif dependency_key in seen_dependencies:
+                reasons.append("duplicate_dependency")
+            else:
+                seen_dependencies.add(dependency_key)
+            if (
+                dependency.get("execution_id")
+                and current_execution_id
+                and str(dependency.get("execution_id")) == str(current_execution_id)
+            ) or (
+                dependency.get("task_id")
+                and current_task_id
+                and str(dependency.get("task_id")) == str(current_task_id)
+            ):
+                reasons.append("dependency_self_reference")
             if not dependency.get("state"):
                 reasons.append("missing_dependency_state")
-            elif dependency.get("state") not in DEPENDENCY_READY_STATES:
+            elif (
+                dependency.get("required", True)
+                and dependency.get("state") not in DEPENDENCY_READY_STATES
+            ):
                 reasons.append("dependency_unsatisfied")
             order = self._int(dependency.get("execution_order"), 0)
             if order < 0:
                 reasons.append("invalid_dependency_order")
+            if current_order > 0 and order >= current_order:
+                reasons.append("invalid_execution_sequence")
+            if self._dependency_chain_depth(dependency) > self.max_dependency_chain:
+                reasons.append("max_dependency_chain_reached")
         return reasons
 
     def _limit_reasons(
@@ -612,6 +719,7 @@ class OrchestrationRuntime:
                     }
                 )
                 continue
+            metadata = dict(dependency.get("metadata") or {})
             normalized.append(
                 {
                     "dependency_id": dependency.get("dependency_id")
@@ -629,7 +737,20 @@ class OrchestrationRuntime:
                         index,
                     ),
                     "required": bool(dependency.get("required", True)),
-                    "metadata": dict(dependency.get("metadata") or {}),
+                    "chain_depth": self._int(
+                        dependency.get("chain_depth")
+                        or dependency.get("dependency_chain_depth")
+                        or metadata.get("chain_depth")
+                        or metadata.get("dependency_chain_depth")
+                        or 1,
+                        1,
+                    ),
+                    "dependency_chain": self._list(
+                        dependency.get("dependency_chain")
+                        or metadata.get("dependency_chain")
+                        or []
+                    ),
+                    "metadata": metadata,
                 }
             )
         return normalized
@@ -641,10 +762,27 @@ class OrchestrationRuntime:
             return f"{runner_id}:{runtime_id}"
         return None
 
+    def _dependency_key(self, dependency: dict[str, Any]) -> str | None:
+        for key in ("dependency_id", "execution_id", "task_id"):
+            value = dependency.get(key)
+            if value:
+                return f"{key}:{value}"
+        return None
+
+    def _dependency_chain_depth(self, dependency: dict[str, Any]) -> int:
+        chain = dependency.get("dependency_chain")
+        if isinstance(chain, (list, tuple)):
+            return max(self._int(dependency.get("chain_depth"), 1), len(chain))
+        return self._int(dependency.get("chain_depth"), 1)
+
     def _dependency_state(self, dependencies: list[dict[str, Any]]) -> str:
         if not dependencies:
             return "clear"
-        if all(item.get("state") in DEPENDENCY_READY_STATES for item in dependencies):
+        if all(
+            (not item.get("required", True))
+            or item.get("state") in DEPENDENCY_READY_STATES
+            for item in dependencies
+        ):
             return "satisfied"
         return "blocked"
 
@@ -674,14 +812,19 @@ class OrchestrationRuntime:
             success=success,
             orchestration_state=orchestration_state,
             dependency_state=dependency_state,
+            coordination_state=orchestration_state,
+            dependency_status=dependency_state,
             coordination_allowed=coordination_allowed,
             runtime_protected=runtime_protected,
             orchestration_registered=orchestration_registered,
+            coordination_registered=orchestration_registered,
             conflict_detected=self._has_conflict_reason(reasons),
             linkage_valid=not self._has_linkage_reason(reasons),
             ownership_consistent="runtime_owner_mismatch" not in reasons,
             dependency_valid=not self._has_dependency_reason(reasons),
+            sequencing_valid=not self._has_sequencing_reason(reasons),
             orchestration_id=orchestration_id,
+            coordination_id=orchestration_id,
             execution_id=context.get("execution_id"),
             task_id=context.get("task_id"),
             runner_id=context.get("runner_id"),
@@ -690,8 +833,10 @@ class OrchestrationRuntime:
             execution_state=context.get("execution_state"),
             task_status=context.get("task_status"),
             execution_order=max(0, self._int(context.get("execution_order"), 0)),
+            execution_sequence=max(0, self._int(context.get("execution_order"), 0)),
             dependency_count=len(dependencies),
             max_execution_dependencies=self.max_execution_dependencies,
+            max_dependency_chain=self.max_dependency_chain,
             active_orchestrations=self._active_orchestrations,
             max_active_orchestrations=self.max_active_orchestrations,
             runtime_orchestration_load=self._runtime_orchestration_load(),
@@ -716,6 +861,7 @@ class OrchestrationRuntime:
                 "execution_task_mismatch",
                 "execution_not_claimed",
                 "invalid_execution_order",
+                "invalid_execution_sequence",
             }
             for reason in reasons
         )
@@ -728,7 +874,24 @@ class OrchestrationRuntime:
                 "missing_dependency_state",
                 "dependency_unsatisfied",
                 "invalid_dependency_order",
+                "invalid_execution_sequence",
+                "duplicate_dependency",
+                "dependency_self_reference",
                 "max_execution_dependencies_reached",
+                "max_dependency_chain_reached",
+            }
+            for reason in reasons
+        )
+
+    def _has_sequencing_reason(self, reasons: list[str]) -> bool:
+        return any(
+            reason
+            in {
+                "invalid_execution_order",
+                "invalid_execution_sequence",
+                "invalid_dependency_order",
+                "duplicate_dependency",
+                "dependency_self_reference",
             }
             for reason in reasons
         )
@@ -740,8 +903,12 @@ class OrchestrationRuntime:
                 "runtime_owner_mismatch",
                 "execution_task_mismatch",
                 "dependency_unsatisfied",
+                "invalid_execution_sequence",
+                "duplicate_dependency",
+                "dependency_self_reference",
                 "max_active_orchestrations_reached",
                 "max_orchestration_load_reached",
+                "max_dependency_chain_reached",
             }
             for reason in reasons
         )
@@ -792,6 +959,15 @@ class OrchestrationRuntime:
             return result if isinstance(result, dict) else {}
         return {}
 
+    def _list(self, value: Any) -> list[Any]:
+        if value is None:
+            return []
+        if isinstance(value, list):
+            return list(value)
+        if isinstance(value, tuple):
+            return list(value)
+        return [value]
+
     def _unique(self, reasons: list[str]) -> list[str]:
         seen: set[str] = set()
         unique: list[str] = []
@@ -804,38 +980,38 @@ class OrchestrationRuntime:
     def _log_result(self, result: OrchestrationResult) -> None:
         if result.status == "idle":
             logger.debug(
-                "orchestration: idle active_orchestrations=%s",
+                "orchestration coordination: idle active_orchestrations=%s",
                 result.active_orchestrations,
             )
             return
         if result.status == "registered":
             logger.info(
-                "orchestration: registered orchestration_id=%s execution_id=%s order=%s dependencies=%s",
-                result.orchestration_id,
+                "orchestration coordination: registered coordination_id=%s execution_id=%s sequence=%s dependencies=%s",
+                result.coordination_id,
                 result.execution_id,
-                result.execution_order,
+                result.execution_sequence,
                 result.dependency_count,
             )
             return
         if result.status == "coordinating":
             logger.info(
-                "orchestration: started orchestration_id=%s execution_id=%s",
-                result.orchestration_id,
+                "orchestration coordination: started coordination_id=%s execution_id=%s",
+                result.coordination_id,
                 result.execution_id,
             )
             return
         if result.status == "released":
             logger.info(
-                "orchestration: completed orchestration_id=%s execution_id=%s duration_ms=%s",
-                result.orchestration_id,
+                "orchestration coordination: completed coordination_id=%s execution_id=%s duration_ms=%s",
+                result.coordination_id,
                 result.execution_id,
                 result.coordination_duration_ms,
             )
             return
         if result.status == "failed":
             logger.warning(
-                "orchestration: failed orchestration_id=%s execution_id=%s reasons=%s error=%s",
-                result.orchestration_id,
+                "orchestration coordination: failed coordination_id=%s execution_id=%s reasons=%s error=%s",
+                result.coordination_id,
                 result.execution_id,
                 ",".join(result.reasons),
                 result.error,
@@ -843,13 +1019,13 @@ class OrchestrationRuntime:
             return
         if result.status == "error":
             logger.error(
-                "orchestration: error reasons=%s error=%s",
+                "orchestration coordination: error reasons=%s error=%s",
                 ",".join(result.reasons),
                 result.error,
             )
             return
         logger.warning(
-            "orchestration: rejected execution_id=%s reasons=%s",
+            "orchestration coordination: rejected execution_id=%s reasons=%s",
             result.execution_id,
             ",".join(result.reasons),
         )

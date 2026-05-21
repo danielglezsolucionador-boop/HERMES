@@ -86,7 +86,7 @@ def test_orchestration_registers_claimed_execution_with_dependencies(caplog):
     assert result.dependency_count == 1
     assert result.runtime_owner == "runner-test:runtime-test"
     assert result.active_orchestrations == 1
-    assert "orchestration: registered" in caplog.text
+    assert "orchestration coordination: registered" in caplog.text
 
     started = runtime.start(result)
     released = runtime.release(started)

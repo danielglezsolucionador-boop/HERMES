@@ -306,6 +306,7 @@ class RuntimeLoop:
             interval_seconds=self.interval_seconds,
             max_active_orchestrations=settings.ORCHESTRATION_MAX_ACTIVE,
             max_execution_dependencies=settings.ORCHESTRATION_MAX_DEPENDENCIES,
+            max_dependency_chain=settings.ORCHESTRATION_MAX_DEPENDENCY_CHAIN,
             max_orchestration_duration_ms=settings.ORCHESTRATION_MAX_DURATION_MS,
             max_orchestration_load=settings.ORCHESTRATION_MAX_RUNTIME_LOAD,
             max_coordination_overhead_ms=settings.ORCHESTRATION_MAX_OVERHEAD_MS,
