@@ -699,6 +699,44 @@ class RuntimeStatus:
         self.execution_block_reasons: list[str] = []
         self.execution_block_last_error: str | None = None
         self.execution_block_metadata: dict = {}
+        self.last_phase_continuation_at: datetime | None = None
+        self.phase_continuation_iteration = 0
+        self.phase_continuation_status = "stopped"
+        self.phase_continuations_ready = 0
+        self.phase_continuations_blocked = 0
+        self.phase_continuations_completed = 0
+        self.phase_continuation_errors = 0
+        self.last_phase_continuation_id: str | None = None
+        self.phase_continuation_current_phase: str | None = None
+        self.phase_continuation_current_subphase: str | None = None
+        self.phase_continuation_next_subphase: str | None = None
+        self.phase_continuation_type: str | None = None
+        self.phase_continuation_governance_status: str | None = None
+        self.phase_continuation_audit_status: str | None = None
+        self.phase_continuation_execution_status: str | None = None
+        self.phase_continuation_runtime_status: str | None = None
+        self.phase_continuation_roadmap_loaded = False
+        self.phase_continuation_dependencies_satisfied = False
+        self.phase_continuation_governance_satisfied = False
+        self.phase_continuation_audit_satisfied = False
+        self.phase_continuation_execution_stable = False
+        self.phase_continuation_runtime_safe = False
+        self.phase_continuation_context_preserved = False
+        self.phase_continuation_traceability_preserved = False
+        self.phase_continuation_progression_allowed = False
+        self.phase_continuation_roadmap: list[str] = []
+        self.phase_continuation_completed_subphases: list[str] = []
+        self.phase_continuation_required_dependencies: list[str] = []
+        self.phase_continuation_missing_dependencies: list[str] = []
+        self.phase_continuation_execution_context: dict = {}
+        self.phase_continuation_lifecycle_history: list[dict] = []
+        self.phase_continuation_audit_history: list[dict] = []
+        self.phase_continuation_governance_history: list[dict] = []
+        self.phase_continuation_lifecycle: list[dict] = []
+        self.phase_continuation_duration_ms = 0
+        self.phase_continuation_reasons: list[str] = []
+        self.phase_continuation_last_error: str | None = None
+        self.phase_continuation_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -2862,6 +2900,102 @@ class RuntimeStatus:
         else:
             self.execution_blocking_errors += 1
 
+    def mark_phase_continuation_result(self, result: dict) -> None:
+        self.last_phase_continuation_at = datetime.now(timezone.utc)
+        self.phase_continuation_iteration += 1
+        self.phase_continuation_status = result.get("status") or "unknown"
+        self.last_phase_continuation_id = result.get("continuation_id")
+        self.phase_continuation_current_phase = result.get("current_phase")
+        self.phase_continuation_current_subphase = result.get("current_subphase")
+        self.phase_continuation_next_subphase = result.get("next_subphase")
+        self.phase_continuation_type = result.get("continuation_type")
+        self.phase_continuation_governance_status = result.get(
+            "governance_status"
+        )
+        self.phase_continuation_audit_status = result.get("audit_status")
+        self.phase_continuation_execution_status = result.get("execution_status")
+        self.phase_continuation_runtime_status = result.get(
+            "continuation_status"
+        )
+        self.phase_continuation_roadmap_loaded = bool(
+            result.get("roadmap_loaded")
+        )
+        self.phase_continuation_dependencies_satisfied = bool(
+            result.get("dependencies_satisfied")
+        )
+        self.phase_continuation_governance_satisfied = bool(
+            result.get("governance_satisfied")
+        )
+        self.phase_continuation_audit_satisfied = bool(
+            result.get("audit_satisfied")
+        )
+        self.phase_continuation_execution_stable = bool(
+            result.get("execution_stable")
+        )
+        self.phase_continuation_runtime_safe = bool(result.get("runtime_safe"))
+        self.phase_continuation_context_preserved = bool(
+            result.get("context_preserved")
+        )
+        self.phase_continuation_traceability_preserved = bool(
+            result.get("traceability_preserved")
+        )
+        self.phase_continuation_progression_allowed = bool(
+            result.get("progression_allowed")
+        )
+        self.phase_continuation_roadmap = [
+            str(item) for item in (result.get("roadmap") or [])
+        ]
+        self.phase_continuation_completed_subphases = [
+            str(item) for item in (result.get("completed_subphases") or [])
+        ]
+        self.phase_continuation_required_dependencies = [
+            str(item) for item in (result.get("required_dependencies") or [])
+        ]
+        self.phase_continuation_missing_dependencies = [
+            str(item) for item in (result.get("missing_dependencies") or [])
+        ]
+        self.phase_continuation_execution_context = dict(
+            result.get("execution_context") or {}
+        )
+        self.phase_continuation_lifecycle_history = [
+            dict(entry)
+            for entry in (result.get("lifecycle_history") or [])
+            if isinstance(entry, dict)
+        ]
+        self.phase_continuation_audit_history = [
+            dict(entry)
+            for entry in (result.get("audit_history") or [])
+            if isinstance(entry, dict)
+        ]
+        self.phase_continuation_governance_history = [
+            dict(entry)
+            for entry in (result.get("governance_history") or [])
+            if isinstance(entry, dict)
+        ]
+        self.phase_continuation_lifecycle = [
+            dict(entry)
+            for entry in (result.get("continuation_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.phase_continuation_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.phase_continuation_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.phase_continuation_last_error = result.get("error")
+        self.phase_continuation_metadata = dict(result.get("metadata") or {})
+
+        if self.phase_continuation_status == "ready":
+            self.phase_continuations_ready += 1
+        elif self.phase_continuation_status == "blocked":
+            self.phase_continuations_blocked += 1
+        elif self.phase_continuation_status == "completed":
+            self.phase_continuations_completed += 1
+        else:
+            self.phase_continuation_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -4262,6 +4396,81 @@ class RuntimeStatus:
             "metadata": dict(self.execution_block_metadata),
         }
 
+    def phase_continuation_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_phase_continuation_at": fmt(
+                self.last_phase_continuation_at
+            ),
+            "phase_continuation_iteration": (
+                self.phase_continuation_iteration
+            ),
+            "phase_continuation_status": self.phase_continuation_status,
+            "phase_continuations_ready": self.phase_continuations_ready,
+            "phase_continuations_blocked": self.phase_continuations_blocked,
+            "phase_continuations_completed": self.phase_continuations_completed,
+            "phase_continuation_errors": self.phase_continuation_errors,
+            "continuation_id": self.last_phase_continuation_id,
+            "current_phase": self.phase_continuation_current_phase,
+            "current_subphase": self.phase_continuation_current_subphase,
+            "next_subphase": self.phase_continuation_next_subphase,
+            "continuation_type": self.phase_continuation_type,
+            "governance_status": self.phase_continuation_governance_status,
+            "audit_status": self.phase_continuation_audit_status,
+            "execution_status": self.phase_continuation_execution_status,
+            "continuation_status": self.phase_continuation_runtime_status,
+            "roadmap_loaded": self.phase_continuation_roadmap_loaded,
+            "dependencies_satisfied": (
+                self.phase_continuation_dependencies_satisfied
+            ),
+            "governance_satisfied": (
+                self.phase_continuation_governance_satisfied
+            ),
+            "audit_satisfied": self.phase_continuation_audit_satisfied,
+            "execution_stable": self.phase_continuation_execution_stable,
+            "runtime_safe": self.phase_continuation_runtime_safe,
+            "context_preserved": self.phase_continuation_context_preserved,
+            "traceability_preserved": (
+                self.phase_continuation_traceability_preserved
+            ),
+            "progression_allowed": (
+                self.phase_continuation_progression_allowed
+            ),
+            "roadmap": list(self.phase_continuation_roadmap),
+            "completed_subphases": list(
+                self.phase_continuation_completed_subphases
+            ),
+            "required_dependencies": list(
+                self.phase_continuation_required_dependencies
+            ),
+            "missing_dependencies": list(
+                self.phase_continuation_missing_dependencies
+            ),
+            "execution_context": dict(
+                self.phase_continuation_execution_context
+            ),
+            "lifecycle_history": [
+                dict(entry)
+                for entry in self.phase_continuation_lifecycle_history
+            ],
+            "audit_history": [
+                dict(entry) for entry in self.phase_continuation_audit_history
+            ],
+            "governance_history": [
+                dict(entry)
+                for entry in self.phase_continuation_governance_history
+            ],
+            "continuation_lifecycle": [
+                dict(entry) for entry in self.phase_continuation_lifecycle
+            ],
+            "duration_ms": self.phase_continuation_duration_ms,
+            "reasons": list(self.phase_continuation_reasons),
+            "last_error": self.phase_continuation_last_error,
+            "metadata": dict(self.phase_continuation_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -4463,6 +4672,7 @@ class RuntimeStatus:
             "audit_response": self.audit_response_metrics(),
             "approval_gate": self.approval_gate_metrics(),
             "execution_blocking": self.execution_blocking_metrics(),
+            "phase_continuation": self.phase_continuation_metrics(),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
             "response_safety": self.response_safety_metrics(),
