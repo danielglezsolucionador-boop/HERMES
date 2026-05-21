@@ -946,6 +946,47 @@ class RuntimeStatus:
         self.operational_memory_reasons: list[str] = []
         self.operational_memory_last_error: str | None = None
         self.operational_memory_metadata: dict = {}
+        self.last_workflow_learning_at: datetime | None = None
+        self.workflow_learning_iteration = 0
+        self.workflow_learning_status = "stopped"
+        self.workflow_learning_learned = 0
+        self.workflow_learning_no_patterns = 0
+        self.workflow_learning_blocked = 0
+        self.workflow_learning_errors = 0
+        self.last_learning_id: str | None = None
+        self.learning_execution_id: str | None = None
+        self.learning_task_id: str | None = None
+        self.learning_workflow: str | None = None
+        self.learning_type: str | None = None
+        self.learning_pattern_type: str | None = None
+        self.learning_status_state: str | None = None
+        self.learning_governance_status: str | None = None
+        self.learning_audit_status: str | None = None
+        self.learning_optimization_status: str | None = None
+        self.learning_governance_compliant = False
+        self.learning_audit_consistent = False
+        self.learning_runtime_safe = False
+        self.learning_context_safe = False
+        self.learning_traceability_preserved = False
+        self.learning_reuse_allowed = False
+        self.learning_autonomy_expanded = False
+        self.learning_memory_analyzed = False
+        self.learning_validated = False
+        self.learning_patterns_detected: list[dict] = []
+        self.learning_execution_insights: list[str] = []
+        self.learning_workflow_improvements: list[str] = []
+        self.learning_recurrent_errors: list[str] = []
+        self.learning_audit_expectations: list[str] = []
+        self.learning_memory_records: list[dict] = []
+        self.learning_execution_history: list[dict] = []
+        self.learning_governance_history: list[dict] = []
+        self.learning_audit_history: list[dict] = []
+        self.learning_continuation_history: list[dict] = []
+        self.learning_lifecycle: list[dict] = []
+        self.workflow_learning_duration_ms = 0
+        self.workflow_learning_reasons: list[str] = []
+        self.workflow_learning_last_error: str | None = None
+        self.workflow_learning_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -3660,6 +3701,99 @@ class RuntimeStatus:
         else:
             self.operational_memory_errors += 1
 
+    def mark_workflow_learning_result(self, result: dict) -> None:
+        self.last_workflow_learning_at = datetime.now(timezone.utc)
+        self.workflow_learning_iteration += 1
+        self.workflow_learning_status = result.get("status") or "unknown"
+        self.last_learning_id = result.get("learning_id")
+        self.learning_execution_id = result.get("execution_id")
+        self.learning_task_id = result.get("task_id")
+        self.learning_workflow = result.get("workflow")
+        self.learning_type = result.get("learning_type")
+        self.learning_pattern_type = result.get("pattern_type")
+        self.learning_status_state = result.get("learning_status")
+        self.learning_governance_status = result.get("governance_status")
+        self.learning_audit_status = result.get("audit_status")
+        self.learning_optimization_status = result.get("optimization_status")
+        self.learning_governance_compliant = bool(
+            result.get("governance_compliant")
+        )
+        self.learning_audit_consistent = bool(result.get("audit_consistent"))
+        self.learning_runtime_safe = bool(result.get("runtime_safe"))
+        self.learning_context_safe = bool(result.get("context_safe"))
+        self.learning_traceability_preserved = bool(
+            result.get("traceability_preserved")
+        )
+        self.learning_reuse_allowed = bool(result.get("reuse_allowed"))
+        self.learning_autonomy_expanded = bool(result.get("autonomy_expanded"))
+        self.learning_memory_analyzed = bool(result.get("memory_analyzed"))
+        self.learning_validated = bool(result.get("learning_validated"))
+        self.learning_patterns_detected = [
+            dict(pattern)
+            for pattern in (result.get("patterns_detected") or [])
+            if isinstance(pattern, dict)
+        ]
+        self.learning_execution_insights = [
+            str(item) for item in (result.get("execution_insights") or [])
+        ]
+        self.learning_workflow_improvements = [
+            str(item) for item in (result.get("workflow_improvements") or [])
+        ]
+        self.learning_recurrent_errors = [
+            str(item) for item in (result.get("recurrent_errors") or [])
+        ]
+        self.learning_audit_expectations = [
+            str(item) for item in (result.get("audit_expectations") or [])
+        ]
+        self.learning_memory_records = [
+            dict(record)
+            for record in (result.get("memory_records") or [])
+            if isinstance(record, dict)
+        ]
+        self.learning_execution_history = [
+            dict(entry)
+            for entry in (result.get("execution_history") or [])
+            if isinstance(entry, dict)
+        ]
+        self.learning_governance_history = [
+            dict(entry)
+            for entry in (result.get("governance_history") or [])
+            if isinstance(entry, dict)
+        ]
+        self.learning_audit_history = [
+            dict(entry)
+            for entry in (result.get("audit_history") or [])
+            if isinstance(entry, dict)
+        ]
+        self.learning_continuation_history = [
+            dict(entry)
+            for entry in (result.get("continuation_history") or [])
+            if isinstance(entry, dict)
+        ]
+        self.learning_lifecycle = [
+            dict(entry)
+            for entry in (result.get("learning_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.workflow_learning_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.workflow_learning_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.workflow_learning_last_error = result.get("error")
+        self.workflow_learning_metadata = dict(result.get("metadata") or {})
+
+        if self.workflow_learning_status == "learned":
+            self.workflow_learning_learned += 1
+        elif self.workflow_learning_status == "no_patterns":
+            self.workflow_learning_no_patterns += 1
+        elif self.workflow_learning_status == "blocked":
+            self.workflow_learning_blocked += 1
+        else:
+            self.workflow_learning_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -5447,6 +5581,73 @@ class RuntimeStatus:
             "metadata": dict(self.operational_memory_metadata),
         }
 
+    def workflow_learning_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_workflow_learning_at": fmt(
+                self.last_workflow_learning_at
+            ),
+            "workflow_learning_iteration": self.workflow_learning_iteration,
+            "workflow_learning_status": self.workflow_learning_status,
+            "workflow_learning_learned": self.workflow_learning_learned,
+            "workflow_learning_no_patterns": self.workflow_learning_no_patterns,
+            "workflow_learning_blocked": self.workflow_learning_blocked,
+            "workflow_learning_errors": self.workflow_learning_errors,
+            "learning_id": self.last_learning_id,
+            "execution_id": self.learning_execution_id,
+            "task_id": self.learning_task_id,
+            "workflow": self.learning_workflow,
+            "learning_type": self.learning_type,
+            "pattern_type": self.learning_pattern_type,
+            "learning_status": self.learning_status_state,
+            "governance_status": self.learning_governance_status,
+            "audit_status": self.learning_audit_status,
+            "optimization_status": self.learning_optimization_status,
+            "governance_compliant": self.learning_governance_compliant,
+            "audit_consistent": self.learning_audit_consistent,
+            "runtime_safe": self.learning_runtime_safe,
+            "context_safe": self.learning_context_safe,
+            "traceability_preserved": self.learning_traceability_preserved,
+            "reuse_allowed": self.learning_reuse_allowed,
+            "autonomy_expanded": self.learning_autonomy_expanded,
+            "memory_analyzed": self.learning_memory_analyzed,
+            "learning_validated": self.learning_validated,
+            "patterns_detected": [
+                dict(pattern) for pattern in self.learning_patterns_detected
+            ],
+            "patterns_detected_count": len(self.learning_patterns_detected),
+            "execution_insights": list(self.learning_execution_insights),
+            "workflow_improvements": list(
+                self.learning_workflow_improvements
+            ),
+            "recurrent_errors": list(self.learning_recurrent_errors),
+            "audit_expectations": list(self.learning_audit_expectations),
+            "memory_records": [
+                dict(record) for record in self.learning_memory_records
+            ],
+            "execution_history": [
+                dict(entry) for entry in self.learning_execution_history
+            ],
+            "governance_history": [
+                dict(entry) for entry in self.learning_governance_history
+            ],
+            "audit_history": [
+                dict(entry) for entry in self.learning_audit_history
+            ],
+            "continuation_history": [
+                dict(entry) for entry in self.learning_continuation_history
+            ],
+            "learning_lifecycle": [
+                dict(entry) for entry in self.learning_lifecycle
+            ],
+            "duration_ms": self.workflow_learning_duration_ms,
+            "reasons": list(self.workflow_learning_reasons),
+            "last_error": self.workflow_learning_last_error,
+            "metadata": dict(self.workflow_learning_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -5654,6 +5855,7 @@ class RuntimeStatus:
             "workflow_chaining": self.workflow_chaining_metrics(),
             "continuation_safety": self.continuation_safety_metrics(),
             "operational_memory": self.operational_memory_metrics(),
+            "workflow_learning": self.workflow_learning_metrics(),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
             "response_safety": self.response_safety_metrics(),
