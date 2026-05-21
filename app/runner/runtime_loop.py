@@ -15,6 +15,7 @@ from sqlalchemy import func, select
 from app.core.config import settings
 from app.db.engine import AsyncSessionLocal
 from app.models.task import Task
+from app.runner.pickup_safety import PickupSafety, PickupSafetyResult
 from app.runner.task_claiming import TaskClaiming, TaskClaimingResult
 from app.runner.task_discovery import TaskDiscovery, TaskDiscoveryResult
 from app.schemas.task import TaskStatus
@@ -37,7 +38,9 @@ class RuntimeLoop:
         pending_task_counter: Callable[[], Awaitable[int]] | None = None,
         task_discovery: Callable[[], Awaitable[TaskDiscoveryResult]] | None = None,
         task_claiming: Callable[[TaskDiscoveryResult], Awaitable[TaskClaimingResult]] | None = None,
+        pickup_safety: Callable[[], Awaitable[PickupSafetyResult]] | None = None,
         claiming_enabled: bool = settings.TASK_CLAIMING_ENABLED,
+        pickup_safety_enabled: bool = settings.TASK_PICKUP_SAFETY_ENABLED,
         degraded_error_threshold: int = settings.RUNTIME_LOOP_DEGRADED_ERROR_THRESHOLD,
         max_consecutive_errors: int = settings.RUNTIME_LOOP_MAX_CONSECUTIVE_ERRORS,
         safety_event_limit: int = settings.RUNTIME_LOOP_SAFETY_EVENT_LIMIT,
@@ -54,6 +57,14 @@ class RuntimeLoop:
             self.task_discovery = TaskDiscovery().discover
         self.claiming_enabled = bool(claiming_enabled)
         self.task_claiming = task_claiming or TaskClaiming().claim_next
+        self.pickup_safety_enabled = bool(
+            pickup_safety_enabled
+            and (
+                pickup_safety is not None
+                or (pending_task_counter is None and task_discovery is None)
+            )
+        )
+        self.pickup_safety = pickup_safety or PickupSafety().inspect
         self.degraded_error_threshold = max(1, int(degraded_error_threshold))
         self.max_consecutive_errors = max(
             self.degraded_error_threshold,
@@ -91,8 +102,22 @@ class RuntimeLoop:
             tasks_detected=tasks_detected,
             duration_ms=poll_duration_ms,
         )
+        pickup_safety_result: PickupSafetyResult | None = None
+        if self.pickup_safety_enabled:
+            pickup_safety_result = await self.pickup_safety()
+            self.status.mark_pickup_safety_completed(
+                pickup_safety_result.to_dict()
+            )
         if self.claiming_enabled:
-            claiming_result = await self.task_claiming(discovery_result)
+            if (
+                pickup_safety_result is not None
+                and not pickup_safety_result.allows_pickup
+            ):
+                claiming_result = self._pickup_safety_blocked_claiming_result(
+                    pickup_safety_result
+                )
+            else:
+                claiming_result = await self.task_claiming(discovery_result)
             self.status.mark_task_claiming_completed(claiming_result.to_dict())
         if (
             tasks_detected > 0
@@ -104,6 +129,23 @@ class RuntimeLoop:
             )
             self._last_logged_tasks_detected = tasks_detected
         return "active"
+
+    def _pickup_safety_blocked_claiming_result(
+        self,
+        pickup_safety: PickupSafetyResult,
+    ) -> TaskClaimingResult:
+        return TaskClaimingResult(
+            status="blocked_by_pickup_safety",
+            runner_id=pickup_safety.runner_id,
+            runtime_id=pickup_safety.runtime_id,
+            active_claims=pickup_safety.active_claims,
+            stale_claims=pickup_safety.stale_claims,
+            max_concurrent_claims=pickup_safety.max_concurrent_claims,
+            stale_after_seconds=settings.TASK_CLAIMING_STALE_AFTER_SECONDS,
+            max_stale_claims=pickup_safety.max_stale_claims,
+            reason=",".join(pickup_safety.reasons) or pickup_safety.status,
+            error=pickup_safety.error,
+        )
 
     async def _discover_from_pending_counter(self) -> TaskDiscoveryResult:
         if self.pending_task_counter is None:
@@ -132,6 +174,10 @@ class RuntimeLoop:
             enabled=self.claiming_enabled,
             interval_seconds=self.interval_seconds,
         )
+        self.status.mark_pickup_safety_started(
+            enabled=self.pickup_safety_enabled,
+            interval_seconds=self.interval_seconds,
+        )
         logger.info(
             "runtime_loop: started interval_seconds=%s",
             self.interval_seconds,
@@ -141,6 +187,10 @@ class RuntimeLoop:
         logger.info(
             "runtime_loop: task claiming %s",
             "enabled" if self.claiming_enabled else "disabled",
+        )
+        logger.info(
+            "runtime_loop: pickup safety %s",
+            "enabled" if self.pickup_safety_enabled else "disabled",
         )
 
         stop_reason = "stopped"
@@ -160,6 +210,11 @@ class RuntimeLoop:
                         (time.perf_counter() - cycle_started) * 1000
                     )
                     self.status.mark_task_discovery_error(str(exc), poll_duration_ms)
+                    if self.pickup_safety_enabled:
+                        self.status.mark_pickup_safety_error(
+                            str(exc),
+                            poll_duration_ms,
+                        )
                     if self.claiming_enabled:
                         self.status.mark_task_claiming_error(str(exc), poll_duration_ms)
                     self.status.mark_polling_error(str(exc), poll_duration_ms)

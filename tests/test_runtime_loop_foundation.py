@@ -3,6 +3,7 @@ import asyncio
 import pytest
 
 from app.runner.runtime_loop import RuntimeLoop
+from app.runner.pickup_safety import PickupSafetyResult
 from app.runner.task_claiming import TaskClaimingResult
 from app.runner.task_discovery import TaskDiscoveryResult
 from app.services.runtime_status import RuntimeStatus
@@ -188,6 +189,101 @@ async def test_runtime_loop_records_task_claiming_metrics_when_enabled():
     assert claiming["claims_succeeded"] > 0
     assert claiming["active_claims"] == 1
     assert claiming["last_claimed_task"]["id"] == "task-1"
+
+
+@pytest.mark.asyncio
+async def test_runtime_loop_records_pickup_safety_metrics_when_enabled():
+    async def two_discovered_tasks() -> TaskDiscoveryResult:
+        return TaskDiscoveryResult.from_count(2)
+
+    async def safe_pickup() -> PickupSafetyResult:
+        return PickupSafetyResult(
+            status="safe",
+            runner_id="runner-test",
+            runtime_id="runtime-test",
+            allows_pickup=True,
+            duplicate_prevention=True,
+            race_condition_controlled=True,
+            ownership_consistent=True,
+            runtime_consistent=True,
+            retry_allowed=True,
+            max_concurrent_claims=1,
+            max_stale_claims=0,
+        )
+
+    status = RuntimeStatus()
+    loop = RuntimeLoop(
+        status=status,
+        interval_seconds=0.01,
+        min_interval_seconds=0.01,
+        heartbeat_log_every=1000,
+        task_discovery=two_discovered_tasks,
+        pickup_safety=safe_pickup,
+    )
+
+    task = asyncio.create_task(loop.run())
+    await asyncio.sleep(0.03)
+    pickup = status.pickup_safety_metrics()
+    loop.request_stop("test_stop")
+    await asyncio.wait_for(task, timeout=1)
+
+    assert pickup["pickup_safety_enabled"] is True
+    assert pickup["pickup_safety_status"] == "safe"
+    assert pickup["pickup_safety_iteration"] > 0
+    assert pickup["allows_pickup"] is True
+
+
+@pytest.mark.asyncio
+async def test_runtime_loop_blocks_claiming_when_pickup_safety_blocks():
+    async def two_discovered_tasks() -> TaskDiscoveryResult:
+        return TaskDiscoveryResult.from_count(2)
+
+    async def blocked_pickup() -> PickupSafetyResult:
+        return PickupSafetyResult(
+            status="blocked",
+            runner_id="runner-test",
+            runtime_id="runtime-test",
+            allows_pickup=False,
+            duplicate_prevention=True,
+            race_condition_controlled=False,
+            ownership_consistent=True,
+            runtime_consistent=True,
+            retry_allowed=True,
+            active_claims=1,
+            max_concurrent_claims=1,
+            reasons=("active_claim_limit_reached",),
+        )
+
+    claiming_called = False
+
+    async def claims_one_task(discovery: TaskDiscoveryResult) -> TaskClaimingResult:
+        nonlocal claiming_called
+        claiming_called = True
+        return TaskClaimingResult(status="claimed", runner_id="r", runtime_id="rt")
+
+    status = RuntimeStatus()
+    loop = RuntimeLoop(
+        status=status,
+        interval_seconds=0.01,
+        min_interval_seconds=0.01,
+        heartbeat_log_every=1000,
+        task_discovery=two_discovered_tasks,
+        task_claiming=claims_one_task,
+        claiming_enabled=True,
+        pickup_safety=blocked_pickup,
+    )
+
+    task = asyncio.create_task(loop.run())
+    await asyncio.sleep(0.03)
+    claiming = status.claiming_metrics()
+    pickup = status.pickup_safety_metrics()
+    loop.request_stop("test_stop")
+    await asyncio.wait_for(task, timeout=1)
+
+    assert claiming_called is False
+    assert pickup["pickup_safety_status"] == "blocked"
+    assert claiming["claiming_status"] == "blocked_by_pickup_safety"
+    assert claiming["claims_attempted"] == 0
 
 
 @pytest.mark.asyncio

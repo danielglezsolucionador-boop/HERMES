@@ -91,6 +91,37 @@ class RuntimeStatus:
         self.claiming_runner_id: str | None = None
         self.claiming_runtime_id: str | None = None
         self.last_claimed_task: dict | None = None
+        self.pickup_safety_started_at: datetime | None = None
+        self.last_pickup_safety_at: datetime | None = None
+        self.pickup_safety_iteration = 0
+        self.pickup_safety_enabled = False
+        self.pickup_safety_status = "stopped"
+        self.pickup_safety_interval_seconds = 0.0
+        self.pickup_safety_last_duration_ms = 0
+        self.pickup_safety_errors = 0
+        self.pickup_safety_last_error: str | None = None
+        self.pickup_safety_allows_pickup = True
+        self.pickup_safety_duplicate_prevention = True
+        self.pickup_safety_race_condition_controlled = True
+        self.pickup_safety_ownership_consistent = True
+        self.pickup_safety_runtime_consistent = True
+        self.pickup_safety_retry_allowed = True
+        self.pickup_safety_active_claims = 0
+        self.pickup_safety_stale_claims = 0
+        self.pickup_safety_orphaned_claims = 0
+        self.pickup_safety_foreign_runtime_claims = 0
+        self.pickup_safety_invalid_claims = 0
+        self.pickup_safety_max_concurrent_claims = 0
+        self.pickup_safety_max_stale_claims = 0
+        self.pickup_safety_max_orphaned_claims = 0
+        self.pickup_safety_max_invalid_claims = 0
+        self.pickup_safety_max_foreign_runtime_claims = 0
+        self.pickup_safety_retry_attempts = 0
+        self.pickup_safety_max_retries = 0
+        self.pickup_safety_retry_window_seconds = 0
+        self.pickup_safety_reasons: list[str] = []
+        self.pickup_safety_runner_id: str | None = None
+        self.pickup_safety_runtime_id: str | None = None
         self.runtime_safe = True
         self.consecutive_errors = 0
         self.degraded_state = False
@@ -215,6 +246,7 @@ class RuntimeStatus:
         self.polling_status = "stopped"
         self.discovery_status = "stopped"
         self.claiming_status = "stopped"
+        self.pickup_safety_status = "stopped"
 
     def configure_safety_event_limit(self, limit: int) -> None:
         self.safety_event_limit = max(1, int(limit or 1))
@@ -414,6 +446,109 @@ class RuntimeStatus:
         self.claiming_status = "error"
         self.claiming_last_error = error or "unknown_claiming_error"
 
+    def mark_pickup_safety_started(
+        self,
+        enabled: bool,
+        interval_seconds: float,
+    ) -> None:
+        self.pickup_safety_started_at = datetime.now(timezone.utc)
+        self.pickup_safety_enabled = bool(enabled)
+        self.pickup_safety_status = "active" if enabled else "disabled"
+        self.pickup_safety_interval_seconds = interval_seconds
+        self.pickup_safety_last_error = None
+
+    def mark_pickup_safety_completed(self, result: dict) -> None:
+        self.last_pickup_safety_at = datetime.now(timezone.utc)
+        self.pickup_safety_iteration += 1
+        self.pickup_safety_status = result.get("status") or "unknown"
+        self.pickup_safety_last_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.pickup_safety_allows_pickup = bool(result.get("allows_pickup"))
+        self.pickup_safety_duplicate_prevention = bool(
+            result.get("duplicate_prevention")
+        )
+        self.pickup_safety_race_condition_controlled = bool(
+            result.get("race_condition_controlled")
+        )
+        self.pickup_safety_ownership_consistent = bool(
+            result.get("ownership_consistent")
+        )
+        self.pickup_safety_runtime_consistent = bool(
+            result.get("runtime_consistent")
+        )
+        self.pickup_safety_retry_allowed = bool(result.get("retry_allowed"))
+        self.pickup_safety_active_claims = max(
+            0,
+            int(result.get("active_claims") or 0),
+        )
+        self.pickup_safety_stale_claims = max(
+            0,
+            int(result.get("stale_claims") or 0),
+        )
+        self.pickup_safety_orphaned_claims = max(
+            0,
+            int(result.get("orphaned_claims") or 0),
+        )
+        self.pickup_safety_foreign_runtime_claims = max(
+            0,
+            int(result.get("foreign_runtime_claims") or 0),
+        )
+        self.pickup_safety_invalid_claims = max(
+            0,
+            int(result.get("invalid_claims") or 0),
+        )
+        self.pickup_safety_max_concurrent_claims = max(
+            0,
+            int(result.get("max_concurrent_claims") or 0),
+        )
+        self.pickup_safety_max_stale_claims = max(
+            0,
+            int(result.get("max_stale_claims") or 0),
+        )
+        self.pickup_safety_max_orphaned_claims = max(
+            0,
+            int(result.get("max_orphaned_claims") or 0),
+        )
+        self.pickup_safety_max_invalid_claims = max(
+            0,
+            int(result.get("max_invalid_claims") or 0),
+        )
+        self.pickup_safety_max_foreign_runtime_claims = max(
+            0,
+            int(result.get("max_foreign_runtime_claims") or 0),
+        )
+        self.pickup_safety_retry_attempts = max(
+            0,
+            int(result.get("pickup_retry_attempts") or 0),
+        )
+        self.pickup_safety_max_retries = max(
+            0,
+            int(result.get("max_pickup_retries") or 0),
+        )
+        self.pickup_safety_retry_window_seconds = max(
+            0,
+            int(result.get("retry_window_seconds") or 0),
+        )
+        self.pickup_safety_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.pickup_safety_runner_id = result.get("runner_id")
+        self.pickup_safety_runtime_id = result.get("runtime_id")
+        self.pickup_safety_last_error = result.get("error")
+        if self.pickup_safety_status == "error":
+            self.pickup_safety_errors += 1
+
+    def mark_pickup_safety_error(self, error: str, duration_ms: int = 0) -> None:
+        self.last_pickup_safety_at = datetime.now(timezone.utc)
+        self.pickup_safety_iteration += 1
+        self.pickup_safety_last_duration_ms = max(0, int(duration_ms or 0))
+        self.pickup_safety_errors += 1
+        self.pickup_safety_status = "error"
+        self.pickup_safety_allows_pickup = False
+        self.pickup_safety_last_error = error or "unknown_pickup_safety_error"
+
     def ai_metrics(self) -> dict:
         avg_duration = 0
         avg_provider = 0
@@ -581,6 +716,48 @@ class RuntimeStatus:
             "last_claimed_task": self.last_claimed_task,
         }
 
+    def pickup_safety_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "started_at": fmt(self.pickup_safety_started_at),
+            "last_pickup_safety_at": fmt(self.last_pickup_safety_at),
+            "pickup_safety_iteration": self.pickup_safety_iteration,
+            "pickup_safety_enabled": self.pickup_safety_enabled,
+            "pickup_safety_status": self.pickup_safety_status,
+            "pickup_safety_interval_seconds": self.pickup_safety_interval_seconds,
+            "pickup_safety_last_duration_ms": self.pickup_safety_last_duration_ms,
+            "pickup_safety_errors": self.pickup_safety_errors,
+            "pickup_safety_last_error": self.pickup_safety_last_error,
+            "allows_pickup": self.pickup_safety_allows_pickup,
+            "duplicate_prevention": self.pickup_safety_duplicate_prevention,
+            "race_condition_controlled": (
+                self.pickup_safety_race_condition_controlled
+            ),
+            "ownership_consistent": self.pickup_safety_ownership_consistent,
+            "runtime_consistent": self.pickup_safety_runtime_consistent,
+            "retry_allowed": self.pickup_safety_retry_allowed,
+            "active_claims": self.pickup_safety_active_claims,
+            "stale_claims": self.pickup_safety_stale_claims,
+            "orphaned_claims": self.pickup_safety_orphaned_claims,
+            "foreign_runtime_claims": self.pickup_safety_foreign_runtime_claims,
+            "invalid_claims": self.pickup_safety_invalid_claims,
+            "max_concurrent_claims": self.pickup_safety_max_concurrent_claims,
+            "max_stale_claims": self.pickup_safety_max_stale_claims,
+            "max_orphaned_claims": self.pickup_safety_max_orphaned_claims,
+            "max_invalid_claims": self.pickup_safety_max_invalid_claims,
+            "max_foreign_runtime_claims": (
+                self.pickup_safety_max_foreign_runtime_claims
+            ),
+            "pickup_retry_attempts": self.pickup_safety_retry_attempts,
+            "max_pickup_retries": self.pickup_safety_max_retries,
+            "retry_window_seconds": self.pickup_safety_retry_window_seconds,
+            "reasons": list(self.pickup_safety_reasons),
+            "runner_id": self.pickup_safety_runner_id,
+            "runtime_id": self.pickup_safety_runtime_id,
+        }
+
     def to_dict(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -601,6 +778,7 @@ class RuntimeStatus:
             "polling": self.polling_metrics(),
             "discovery": self.discovery_metrics(),
             "claiming": self.claiming_metrics(),
+            "pickup_safety": self.pickup_safety_metrics(),
             "safety": self.safety_metrics(),
         }
         data.update(self.ai_metrics())
