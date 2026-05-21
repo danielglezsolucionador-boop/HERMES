@@ -2001,6 +2001,43 @@ class RuntimeStatus:
         self.stress_test_reasons: list[str] = []
         self.stress_test_last_error: str | None = None
         self.stress_test_metadata: dict = {}
+        self.last_failure_recovery_at: datetime | None = None
+        self.failure_recovery_iteration = 0
+        self.failure_recovery_status = "stopped"
+        self.failure_recoveries_completed = 0
+        self.failure_recoveries_blocked = 0
+        self.failure_recovery_errors = 0
+        self.failure_recovery_id: str | None = None
+        self.failure_recovery_workflow_id: str | None = None
+        self.failure_recovery_failure_type: str | None = None
+        self.failure_recovery_failure_detected = False
+        self.failure_recovery_required = False
+        self.failure_recovery_runtime_status: str | None = None
+        self.failure_recovery_recovery_status: str | None = None
+        self.failure_recovery_continuation_status: str | None = None
+        self.failure_recovery_governance_status: str | None = None
+        self.failure_recovery_execution_status: str | None = None
+        self.failure_recovery_workflow_integrity_valid = False
+        self.failure_recovery_runtime_integrity_valid = False
+        self.failure_recovery_recovery_status_valid = False
+        self.failure_recovery_execution_continuity_valid = False
+        self.failure_recovery_governance_consistency_valid = False
+        self.failure_recovery_operational_stability_valid = False
+        self.failure_recovery_safe = False
+        self.failure_recovery_continuation_allowed = False
+        self.failure_recovery_runtime_restored = False
+        self.failure_recovery_traceability_preserved = False
+        self.failure_recovery_history_preserved = False
+        self.failure_recovery_governance_state_preserved = False
+        self.failure_recovery_failure_conditions: list[str] = []
+        self.failure_recovery_blocking_conditions: list[str] = []
+        self.failure_recovery_report: dict = {}
+        self.failure_recovery_visibility_payload: dict = {}
+        self.failure_recovery_lifecycle: list[dict] = []
+        self.failure_recovery_duration_ms = 0
+        self.failure_recovery_reasons: list[str] = []
+        self.failure_recovery_last_error: str | None = None
+        self.failure_recovery_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -7409,6 +7446,96 @@ class RuntimeStatus:
         else:
             self.stress_test_errors += 1
 
+    def mark_failure_recovery_result(self, result: dict) -> None:
+        self.last_failure_recovery_at = datetime.now(timezone.utc)
+        self.failure_recovery_iteration += 1
+        self.failure_recovery_status = result.get("status") or "unknown"
+        self.failure_recovery_id = result.get("recovery_id")
+        self.failure_recovery_workflow_id = result.get("workflow_id")
+        self.failure_recovery_failure_type = result.get("failure_type")
+        self.failure_recovery_failure_detected = bool(
+            result.get("failure_detected")
+        )
+        self.failure_recovery_required = bool(result.get("recovery_required"))
+        self.failure_recovery_runtime_status = result.get("runtime_status")
+        self.failure_recovery_recovery_status = result.get("recovery_status")
+        self.failure_recovery_continuation_status = result.get(
+            "continuation_status"
+        )
+        self.failure_recovery_governance_status = result.get(
+            "governance_status"
+        )
+        self.failure_recovery_execution_status = result.get(
+            "execution_status"
+        )
+        self.failure_recovery_workflow_integrity_valid = bool(
+            result.get("workflow_integrity_valid")
+        )
+        self.failure_recovery_runtime_integrity_valid = bool(
+            result.get("runtime_integrity_valid")
+        )
+        self.failure_recovery_recovery_status_valid = bool(
+            result.get("recovery_status_valid")
+        )
+        self.failure_recovery_execution_continuity_valid = bool(
+            result.get("execution_continuity_valid")
+        )
+        self.failure_recovery_governance_consistency_valid = bool(
+            result.get("governance_consistency_valid")
+        )
+        self.failure_recovery_operational_stability_valid = bool(
+            result.get("operational_stability_valid")
+        )
+        self.failure_recovery_safe = bool(result.get("recovery_safe"))
+        self.failure_recovery_continuation_allowed = bool(
+            result.get("continuation_allowed")
+        )
+        self.failure_recovery_runtime_restored = bool(
+            result.get("runtime_restored")
+        )
+        self.failure_recovery_traceability_preserved = bool(
+            result.get("workflow_traceability_preserved")
+        )
+        self.failure_recovery_history_preserved = bool(
+            result.get("workflow_history_preserved")
+        )
+        self.failure_recovery_governance_state_preserved = bool(
+            result.get("governance_state_preserved")
+        )
+        self.failure_recovery_failure_conditions = [
+            str(item) for item in (result.get("failure_conditions") or [])
+        ]
+        self.failure_recovery_blocking_conditions = [
+            str(item) for item in (result.get("blocking_conditions") or [])
+        ]
+        self.failure_recovery_report = dict(
+            result.get("recovery_report") or {}
+        )
+        self.failure_recovery_visibility_payload = dict(
+            result.get("human_visibility_payload") or {}
+        )
+        self.failure_recovery_lifecycle = [
+            dict(entry)
+            for entry in (result.get("recovery_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.failure_recovery_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.failure_recovery_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.failure_recovery_last_error = result.get("error")
+        self.failure_recovery_metadata = dict(result.get("metadata") or {})
+
+        if self.failure_recovery_status == "recovered":
+            self.failure_recoveries_completed += 1
+        elif self.failure_recovery_status == "blocked":
+            self.failure_recoveries_blocked += 1
+        else:
+            self.failure_recovery_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -11434,6 +11561,82 @@ class RuntimeStatus:
             "metadata": dict(self.stress_test_metadata),
         }
 
+    def failure_recovery_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_failure_recovery_at": fmt(self.last_failure_recovery_at),
+            "failure_recovery_iteration": self.failure_recovery_iteration,
+            "failure_recovery_status": self.failure_recovery_status,
+            "failure_recoveries_completed": (
+                self.failure_recoveries_completed
+            ),
+            "failure_recoveries_blocked": self.failure_recoveries_blocked,
+            "failure_recovery_errors": self.failure_recovery_errors,
+            "recovery_id": self.failure_recovery_id,
+            "workflow_id": self.failure_recovery_workflow_id,
+            "failure_type": self.failure_recovery_failure_type,
+            "failure_detected": self.failure_recovery_failure_detected,
+            "recovery_required": self.failure_recovery_required,
+            "runtime_status": self.failure_recovery_runtime_status,
+            "recovery_status": self.failure_recovery_recovery_status,
+            "continuation_status": (
+                self.failure_recovery_continuation_status
+            ),
+            "governance_status": self.failure_recovery_governance_status,
+            "execution_status": self.failure_recovery_execution_status,
+            "workflow_integrity_valid": (
+                self.failure_recovery_workflow_integrity_valid
+            ),
+            "runtime_integrity_valid": (
+                self.failure_recovery_runtime_integrity_valid
+            ),
+            "recovery_status_valid": (
+                self.failure_recovery_recovery_status_valid
+            ),
+            "execution_continuity_valid": (
+                self.failure_recovery_execution_continuity_valid
+            ),
+            "governance_consistency_valid": (
+                self.failure_recovery_governance_consistency_valid
+            ),
+            "operational_stability_valid": (
+                self.failure_recovery_operational_stability_valid
+            ),
+            "recovery_safe": self.failure_recovery_safe,
+            "continuation_allowed": (
+                self.failure_recovery_continuation_allowed
+            ),
+            "runtime_restored": self.failure_recovery_runtime_restored,
+            "workflow_traceability_preserved": (
+                self.failure_recovery_traceability_preserved
+            ),
+            "workflow_history_preserved": (
+                self.failure_recovery_history_preserved
+            ),
+            "governance_state_preserved": (
+                self.failure_recovery_governance_state_preserved
+            ),
+            "failure_conditions": list(
+                self.failure_recovery_failure_conditions
+            ),
+            "blocking_conditions": list(
+                self.failure_recovery_blocking_conditions
+            ),
+            "recovery_report": dict(self.failure_recovery_report),
+            "human_visibility_payload": dict(
+                self.failure_recovery_visibility_payload
+            ),
+            "recovery_lifecycle": [
+                dict(entry) for entry in self.failure_recovery_lifecycle
+            ],
+            "duration_ms": self.failure_recovery_duration_ms,
+            "reasons": list(self.failure_recovery_reasons),
+            "last_error": self.failure_recovery_last_error,
+            "metadata": dict(self.failure_recovery_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -11700,6 +11903,7 @@ class RuntimeStatus:
             ),
             "workflow_validation": self.workflow_validation_metrics(),
             "stress_tests": self.stress_tests_metrics(),
+            "failure_recovery": self.failure_recovery_metrics(),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
             "response_safety": self.response_safety_metrics(),
