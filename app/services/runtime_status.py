@@ -2141,6 +2141,38 @@ class RuntimeStatus:
         self.observability_reasons: list[str] = []
         self.observability_last_error: str | None = None
         self.observability_metadata: dict = {}
+        self.last_production_hardening_at: datetime | None = None
+        self.production_hardening_iteration = 0
+        self.production_hardening_status = "stopped"
+        self.production_hardenings_applied = 0
+        self.production_hardenings_blocked = 0
+        self.production_hardening_errors = 0
+        self.production_hardening_id: str | None = None
+        self.production_hardening_workflow_id: str | None = None
+        self.production_runtime_protection_valid = False
+        self.production_execution_safety_valid = False
+        self.production_governance_protection_valid = False
+        self.production_failure_resistance_valid = False
+        self.production_security_stability_valid = False
+        self.production_operational_resilience_valid = False
+        self.production_workflow_integrity_valid = False
+        self.production_hardening_consistent = False
+        self.production_continuation_allowed = False
+        self.production_risks_detected = False
+        self.production_runtime_protected = False
+        self.production_governance_consistency_preserved = False
+        self.production_workflow_traceability_preserved = False
+        self.production_protections_applied: list[str] = []
+        self.production_risks_mitigated: list[str] = []
+        self.production_risk_conditions: list[str] = []
+        self.production_blocking_conditions: list[str] = []
+        self.production_hardening_report: dict = {}
+        self.production_hardening_visibility_payload: dict = {}
+        self.production_hardening_lifecycle: list[dict] = []
+        self.production_hardening_duration_ms = 0
+        self.production_hardening_reasons: list[str] = []
+        self.production_hardening_last_error: str | None = None
+        self.production_hardening_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -7909,6 +7941,91 @@ class RuntimeStatus:
         else:
             self.observability_base_errors += 1
 
+    def mark_production_hardening_result(self, result: dict) -> None:
+        self.last_production_hardening_at = datetime.now(timezone.utc)
+        self.production_hardening_iteration += 1
+        self.production_hardening_status = result.get("status") or "unknown"
+        self.production_hardening_id = result.get("hardening_id")
+        self.production_hardening_workflow_id = result.get("workflow_id")
+        self.production_runtime_protection_valid = bool(
+            result.get("runtime_protection_valid")
+        )
+        self.production_execution_safety_valid = bool(
+            result.get("execution_safety_valid")
+        )
+        self.production_governance_protection_valid = bool(
+            result.get("governance_protection_valid")
+        )
+        self.production_failure_resistance_valid = bool(
+            result.get("failure_resistance_valid")
+        )
+        self.production_security_stability_valid = bool(
+            result.get("security_stability_valid")
+        )
+        self.production_operational_resilience_valid = bool(
+            result.get("operational_resilience_valid")
+        )
+        self.production_workflow_integrity_valid = bool(
+            result.get("workflow_integrity_valid")
+        )
+        self.production_hardening_consistent = bool(
+            result.get("hardening_consistent")
+        )
+        self.production_continuation_allowed = bool(
+            result.get("continuation_allowed")
+        )
+        self.production_risks_detected = bool(result.get("risks_detected"))
+        self.production_runtime_protected = bool(
+            result.get("runtime_protected")
+        )
+        self.production_governance_consistency_preserved = bool(
+            result.get("governance_consistency_preserved")
+        )
+        self.production_workflow_traceability_preserved = bool(
+            result.get("workflow_traceability_preserved")
+        )
+        self.production_protections_applied = [
+            str(item) for item in (result.get("protections_applied") or [])
+        ]
+        self.production_risks_mitigated = [
+            str(item) for item in (result.get("risks_mitigated") or [])
+        ]
+        self.production_risk_conditions = [
+            str(item) for item in (result.get("risk_conditions") or [])
+        ]
+        self.production_blocking_conditions = [
+            str(item) for item in (result.get("blocking_conditions") or [])
+        ]
+        self.production_hardening_report = dict(
+            result.get("hardening_report") or {}
+        )
+        self.production_hardening_visibility_payload = dict(
+            result.get("human_visibility_payload") or {}
+        )
+        self.production_hardening_lifecycle = [
+            dict(entry)
+            for entry in (result.get("hardening_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.production_hardening_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.production_hardening_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.production_hardening_last_error = result.get("error")
+        self.production_hardening_metadata = dict(
+            result.get("metadata") or {}
+        )
+
+        if self.production_hardening_status == "hardened":
+            self.production_hardenings_applied += 1
+        elif self.production_hardening_status == "blocked":
+            self.production_hardenings_blocked += 1
+        else:
+            self.production_hardening_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -12247,6 +12364,73 @@ class RuntimeStatus:
             "metadata": dict(self.observability_metadata),
         }
 
+    def production_hardening_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_production_hardening_at": fmt(
+                self.last_production_hardening_at
+            ),
+            "production_hardening_iteration": (
+                self.production_hardening_iteration
+            ),
+            "production_hardening_status": self.production_hardening_status,
+            "production_hardenings_applied": (
+                self.production_hardenings_applied
+            ),
+            "production_hardenings_blocked": (
+                self.production_hardenings_blocked
+            ),
+            "production_hardening_errors": self.production_hardening_errors,
+            "hardening_id": self.production_hardening_id,
+            "workflow_id": self.production_hardening_workflow_id,
+            "runtime_protection_valid": (
+                self.production_runtime_protection_valid
+            ),
+            "execution_safety_valid": self.production_execution_safety_valid,
+            "governance_protection_valid": (
+                self.production_governance_protection_valid
+            ),
+            "failure_resistance_valid": (
+                self.production_failure_resistance_valid
+            ),
+            "security_stability_valid": (
+                self.production_security_stability_valid
+            ),
+            "operational_resilience_valid": (
+                self.production_operational_resilience_valid
+            ),
+            "workflow_integrity_valid": (
+                self.production_workflow_integrity_valid
+            ),
+            "hardening_consistent": self.production_hardening_consistent,
+            "continuation_allowed": self.production_continuation_allowed,
+            "risks_detected": self.production_risks_detected,
+            "runtime_protected": self.production_runtime_protected,
+            "governance_consistency_preserved": (
+                self.production_governance_consistency_preserved
+            ),
+            "workflow_traceability_preserved": (
+                self.production_workflow_traceability_preserved
+            ),
+            "protections_applied": list(self.production_protections_applied),
+            "risks_mitigated": list(self.production_risks_mitigated),
+            "risk_conditions": list(self.production_risk_conditions),
+            "blocking_conditions": list(self.production_blocking_conditions),
+            "hardening_report": dict(self.production_hardening_report),
+            "human_visibility_payload": dict(
+                self.production_hardening_visibility_payload
+            ),
+            "hardening_lifecycle": [
+                dict(entry) for entry in self.production_hardening_lifecycle
+            ],
+            "duration_ms": self.production_hardening_duration_ms,
+            "reasons": list(self.production_hardening_reasons),
+            "last_error": self.production_hardening_last_error,
+            "metadata": dict(self.production_hardening_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -12519,6 +12703,7 @@ class RuntimeStatus:
                 self.long_running_validation_metrics()
             ),
             "observability_base": self.observability_base_metrics(),
+            "production_hardening": self.production_hardening_metrics(),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
             "response_safety": self.response_safety_metrics(),
