@@ -181,6 +181,9 @@ class RuntimeStatus:
         self.execution_session_transition_allowed = True
         self.execution_session_blocking_detected = False
         self.execution_session_blocking_reasons: list[str] = []
+        self.last_execution_session_lifecycle_stage: str | None = None
+        self.last_execution_session_lifecycle_transition: str | None = None
+        self.execution_session_lifecycle_transition_allowed = True
         self.execution_session_snapshot: dict | None = None
         self.execution_session_reasons: list[str] = []
         self.execution_safety_started_at: datetime | None = None
@@ -1129,6 +1132,15 @@ class RuntimeStatus:
         self.execution_session_blocking_reasons = [
             str(reason) for reason in (result.get("blocking_reasons") or [])
         ]
+        self.last_execution_session_lifecycle_stage = result.get(
+            "lifecycle_stage"
+        )
+        self.last_execution_session_lifecycle_transition = result.get(
+            "lifecycle_transition"
+        )
+        self.execution_session_lifecycle_transition_allowed = bool(
+            result.get("lifecycle_transition_allowed", True)
+        )
         session = result.get("session")
         self.execution_session_snapshot = (
             dict(session) if isinstance(session, dict) else None
@@ -1153,6 +1165,7 @@ class RuntimeStatus:
         self.execution_session_state = "error"
         self.execution_session_runtime_protected = True
         self.execution_session_transition_allowed = False
+        self.execution_session_lifecycle_transition_allowed = False
         self.execution_session_blocking_detected = True
         self.execution_session_last_error = (
             error or "unknown_execution_session_error"
@@ -2581,6 +2594,13 @@ class RuntimeStatus:
             ),
             "blocking_detected": self.execution_session_blocking_detected,
             "blocking_reasons": list(self.execution_session_blocking_reasons),
+            "lifecycle_stage": self.last_execution_session_lifecycle_stage,
+            "lifecycle_transition": (
+                self.last_execution_session_lifecycle_transition
+            ),
+            "lifecycle_transition_allowed": (
+                self.execution_session_lifecycle_transition_allowed
+            ),
             "session": self.execution_session_snapshot,
             "reasons": list(self.execution_session_reasons),
         }

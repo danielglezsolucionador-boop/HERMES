@@ -30,6 +30,11 @@ from app.runner.execution_state_control import (
     ExecutionStateController,
     ExecutionStateTransitionResult,
 )
+from app.runner.execution_lifecycle import (
+    LIFECYCLE_STAGE_ACTIVE_EXECUTION,
+    ExecutionLifecycleController,
+    ExecutionLifecycleResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +87,7 @@ class ExecutionSession:
     runtime_owner: str
     runtime_context: dict[str, Any] = field(default_factory=dict)
     context_memory: dict[str, Any] = field(default_factory=dict)
+    lifecycle_stage: str = LIFECYCLE_STAGE_ACTIVE_EXECUTION
     audit_status: str = "not_started"
     created_at: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
@@ -97,6 +103,7 @@ class ExecutionSession:
     recovery_available: bool = True
     active: bool = True
     state_history: tuple[dict[str, Any], ...] = field(default_factory=tuple)
+    lifecycle_history: tuple[dict[str, Any], ...] = field(default_factory=tuple)
     logs: tuple[ExecutionSessionLogEntry, ...] = field(default_factory=tuple)
 
     def to_dict(self) -> dict[str, Any]:
@@ -108,6 +115,7 @@ class ExecutionSession:
             "runtime_owner": self.runtime_owner,
             "runtime_context": dict(self.runtime_context),
             "context_memory": dict(self.context_memory),
+            "lifecycle_stage": self.lifecycle_stage,
             "audit_status": self.audit_status,
             "created_at": self.created_at,
             "started_at": self.started_at,
@@ -121,6 +129,9 @@ class ExecutionSession:
             "recovery_available": self.recovery_available,
             "active": self.active,
             "state_history": [dict(item) for item in self.state_history],
+            "lifecycle_history": [
+                dict(item) for item in self.lifecycle_history
+            ],
             "logs": [entry.to_dict() for entry in self.logs],
         }
 
@@ -154,6 +165,9 @@ class ExecutionSessionResult:
     state_transition_allowed: bool = True
     blocking_detected: bool = False
     blocking_reasons: tuple[str, ...] = field(default_factory=tuple)
+    lifecycle_stage: str | None = None
+    lifecycle_transition: str | None = None
+    lifecycle_transition_allowed: bool = True
     reasons: tuple[str, ...] = field(default_factory=tuple)
     error: str | None = None
 
@@ -184,6 +198,9 @@ class ExecutionSessionResult:
             "state_transition_allowed": self.state_transition_allowed,
             "blocking_detected": self.blocking_detected,
             "blocking_reasons": list(self.blocking_reasons),
+            "lifecycle_stage": self.lifecycle_stage,
+            "lifecycle_transition": self.lifecycle_transition,
+            "lifecycle_transition_allowed": self.lifecycle_transition_allowed,
             "reasons": list(self.reasons),
             "error": self.error,
         }
@@ -200,6 +217,7 @@ class ExecutionSessionManager:
         self.max_active_sessions = max(1, int(max_active_sessions or 1))
         self.max_log_entries = max(1, int(max_log_entries or 1))
         self.state_controller = ExecutionStateController()
+        self.lifecycle_controller = ExecutionLifecycleController()
         self._sessions: dict[str, ExecutionSession] = {}
         self._active_session_id: str | None = None
 
@@ -282,6 +300,7 @@ class ExecutionSessionManager:
                 self._log_result(result)
                 return result
 
+            lifecycle_history = self.lifecycle_controller.bootstrap_history()
             now = datetime.now(timezone.utc).isoformat()
             session = ExecutionSession(
                 session_id=str(uuid4()),
@@ -291,6 +310,7 @@ class ExecutionSessionManager:
                 runtime_owner=self.runtime_owner,
                 runtime_context=context,
                 context_memory=memory,
+                lifecycle_stage=LIFECYCLE_STAGE_ACTIVE_EXECUTION,
                 audit_status=audit_status or "not_started",
                 started_at=now,
                 updated_at=now,
@@ -298,7 +318,13 @@ class ExecutionSessionManager:
                     created_transition.to_dict(),
                     running_transition.to_dict(),
                 ),
+                lifecycle_history=lifecycle_history,
                 logs=(
+                    ExecutionSessionLogEntry(
+                        event="lifecycle_transition",
+                        message="Execution lifecycle initialized.",
+                        metadata=lifecycle_history[-1],
+                    ),
                     ExecutionSessionLogEntry(
                         event="state_transition",
                         message="Execution state created.",
@@ -436,6 +462,88 @@ class ExecutionSessionManager:
             session_state=updated.execution_status,
             session=updated,
             transition=transition,
+            started=started,
+        )
+
+    def advance_lifecycle(
+        self,
+        session_id: str,
+        next_stage: str,
+        critical: bool = True,
+        validation_passed: bool = False,
+        audit_status: str | None = None,
+        approval_status: str | None = None,
+        continuation_decision: str | None = None,
+        human_authorized: bool = False,
+        close_requested: bool = False,
+        reasons: list[str] | tuple[str, ...] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> ExecutionSessionResult:
+        started = time.perf_counter()
+        session = self._sessions.get(session_id)
+        if session is None:
+            return self._rejected(
+                "missing_execution_session",
+                "blocked",
+                started,
+            )
+        if session.execution_status in SESSION_FINAL_STATES:
+            return self._rejected(
+                "cannot_update_closed_session_lifecycle",
+                session.execution_status,
+                started,
+                session=session,
+            )
+
+        lifecycle = self.lifecycle_controller.evaluate_transition(
+            session.lifecycle_stage,
+            next_stage,
+            critical=critical,
+            validation_passed=validation_passed,
+            audit_status=audit_status,
+            approval_status=approval_status,
+            continuation_decision=continuation_decision,
+            human_authorized=human_authorized,
+            close_requested=close_requested,
+            reasons=reasons,
+            metadata=metadata,
+        )
+        if not lifecycle.allowed:
+            result = self._result(
+                status="rejected",
+                success=False,
+                session_state=session.execution_status,
+                session=session,
+                lifecycle=lifecycle,
+                reasons=list(lifecycle.reasons),
+                started=started,
+            )
+            self._log_result(result)
+            return result
+
+        updated = replace(
+            session,
+            lifecycle_stage=lifecycle.next_stage or session.lifecycle_stage,
+            audit_status=audit_status or session.audit_status,
+            updated_at=datetime.now(timezone.utc).isoformat(),
+            lifecycle_history=(
+                *session.lifecycle_history,
+                lifecycle.to_dict(),
+            ),
+            logs=self._append_log(
+                session,
+                "lifecycle_transition",
+                "Execution lifecycle advanced.",
+                metadata=lifecycle.to_dict(),
+            ),
+        )
+        self._sessions[session_id] = updated
+        return self._result(
+            status="lifecycle_advanced",
+            success=True,
+            session_state=updated.execution_status,
+            session=updated,
+            lifecycle=lifecycle,
             started=started,
         )
 
@@ -688,6 +796,7 @@ class ExecutionSessionManager:
         reasons: list[str] | None = None,
         error: str | None = None,
         transition: ExecutionStateTransitionResult | None = None,
+        lifecycle: ExecutionLifecycleResult | None = None,
         started: float | None = None,
     ) -> ExecutionSessionResult:
         active_sessions = 1 if self.active_session() else 0
@@ -727,6 +836,19 @@ class ExecutionSessionManager:
             ),
             blocking_reasons=(
                 transition.blocking_reasons if transition else tuple()
+            ),
+            lifecycle_stage=(
+                lifecycle.next_stage
+                if lifecycle and lifecycle.allowed
+                else session.lifecycle_stage if session else None
+            ),
+            lifecycle_transition=(
+                lifecycle.lifecycle_transition if lifecycle else None
+            ),
+            lifecycle_transition_allowed=(
+                lifecycle.allowed
+                if lifecycle
+                else status not in {"rejected", "error"}
             ),
             reasons=tuple(reasons or []),
             error=error,
