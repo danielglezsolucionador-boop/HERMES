@@ -1374,6 +1374,39 @@ class RuntimeStatus:
         self.operational_discovery_reasons: list[str] = []
         self.operational_discovery_last_error: str | None = None
         self.operational_discovery_metadata: dict = {}
+        self.last_vulcan_prompt_protocol_at: datetime | None = None
+        self.vulcan_prompt_protocol_iteration = 0
+        self.vulcan_prompt_protocol_status = "stopped"
+        self.vulcan_prompt_protocol_interpreted = 0
+        self.vulcan_prompt_protocol_blocked = 0
+        self.vulcan_prompt_protocol_errors = 0
+        self.vulcan_protocol_id: str | None = None
+        self.vulcan_execution_objective: str | None = None
+        self.vulcan_technical_scope: str | None = None
+        self.vulcan_file_targets: list[str] = []
+        self.vulcan_validation_requirements: list[str] = []
+        self.vulcan_risk_conditions: list[str] = []
+        self.vulcan_blocking_conditions: list[str] = []
+        self.vulcan_prompt_interpreted = False
+        self.vulcan_technical_objective_identified = False
+        self.vulcan_scope_valid = False
+        self.vulcan_file_targets_valid = False
+        self.vulcan_validations_identified = False
+        self.vulcan_risks_identified = False
+        self.vulcan_blocking_conditions_identified = False
+        self.vulcan_architecture_integrity_preserved = True
+        self.vulcan_runtime_stability_preserved = True
+        self.vulcan_governance_consistency_preserved = True
+        self.vulcan_technical_coherence_preserved = True
+        self.vulcan_controlled_execution_ready = False
+        self.vulcan_execution_authorized = False
+        self.vulcan_handoff_required = False
+        self.vulcan_report_payload: dict = {}
+        self.vulcan_protocol_lifecycle: list[dict] = []
+        self.vulcan_prompt_protocol_duration_ms = 0
+        self.vulcan_prompt_protocol_reasons: list[str] = []
+        self.vulcan_prompt_protocol_last_error: str | None = None
+        self.vulcan_prompt_protocol_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -5141,6 +5174,87 @@ class RuntimeStatus:
         else:
             self.operational_task_discovery_errors += 1
 
+    def mark_vulcan_prompt_protocol_result(self, result: dict) -> None:
+        self.last_vulcan_prompt_protocol_at = datetime.now(timezone.utc)
+        self.vulcan_prompt_protocol_iteration += 1
+        self.vulcan_prompt_protocol_status = result.get("status") or "unknown"
+        self.vulcan_protocol_id = result.get("protocol_id")
+        self.vulcan_execution_objective = result.get("execution_objective")
+        self.vulcan_technical_scope = result.get("technical_scope")
+        self.vulcan_file_targets = [
+            str(target) for target in (result.get("file_targets") or [])
+        ]
+        self.vulcan_validation_requirements = [
+            str(item)
+            for item in (result.get("validation_requirements") or [])
+        ]
+        self.vulcan_risk_conditions = [
+            str(item) for item in (result.get("risk_conditions") or [])
+        ]
+        self.vulcan_blocking_conditions = [
+            str(item) for item in (result.get("blocking_conditions") or [])
+        ]
+        self.vulcan_prompt_interpreted = bool(
+            result.get("prompt_interpreted")
+        )
+        self.vulcan_technical_objective_identified = bool(
+            result.get("technical_objective_identified")
+        )
+        self.vulcan_scope_valid = bool(result.get("scope_valid"))
+        self.vulcan_file_targets_valid = bool(
+            result.get("file_targets_valid")
+        )
+        self.vulcan_validations_identified = bool(
+            result.get("validations_identified")
+        )
+        self.vulcan_risks_identified = bool(result.get("risks_identified"))
+        self.vulcan_blocking_conditions_identified = bool(
+            result.get("blocking_conditions_identified")
+        )
+        self.vulcan_architecture_integrity_preserved = bool(
+            result.get("architecture_integrity_preserved")
+        )
+        self.vulcan_runtime_stability_preserved = bool(
+            result.get("runtime_stability_preserved")
+        )
+        self.vulcan_governance_consistency_preserved = bool(
+            result.get("governance_consistency_preserved")
+        )
+        self.vulcan_technical_coherence_preserved = bool(
+            result.get("technical_coherence_preserved")
+        )
+        self.vulcan_controlled_execution_ready = bool(
+            result.get("controlled_execution_ready")
+        )
+        self.vulcan_execution_authorized = bool(
+            result.get("execution_authorized")
+        )
+        self.vulcan_handoff_required = bool(result.get("handoff_required"))
+        self.vulcan_report_payload = dict(result.get("report_payload") or {})
+        self.vulcan_protocol_lifecycle = [
+            dict(entry)
+            for entry in (result.get("protocol_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.vulcan_prompt_protocol_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.vulcan_prompt_protocol_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.vulcan_prompt_protocol_last_error = result.get("error")
+        self.vulcan_prompt_protocol_metadata = dict(
+            result.get("metadata") or {}
+        )
+
+        if self.vulcan_prompt_protocol_status == "interpreted":
+            self.vulcan_prompt_protocol_interpreted += 1
+        elif self.vulcan_prompt_protocol_status == "blocked":
+            self.vulcan_prompt_protocol_blocked += 1
+        else:
+            self.vulcan_prompt_protocol_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -7778,6 +7892,76 @@ class RuntimeStatus:
             "metadata": dict(self.operational_discovery_metadata),
         }
 
+    def vulcan_prompt_protocol_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_vulcan_prompt_protocol_at": fmt(
+                self.last_vulcan_prompt_protocol_at
+            ),
+            "vulcan_prompt_protocol_iteration": (
+                self.vulcan_prompt_protocol_iteration
+            ),
+            "vulcan_prompt_protocol_status": (
+                self.vulcan_prompt_protocol_status
+            ),
+            "vulcan_prompt_protocol_interpreted": (
+                self.vulcan_prompt_protocol_interpreted
+            ),
+            "vulcan_prompt_protocol_blocked": (
+                self.vulcan_prompt_protocol_blocked
+            ),
+            "vulcan_prompt_protocol_errors": (
+                self.vulcan_prompt_protocol_errors
+            ),
+            "protocol_id": self.vulcan_protocol_id,
+            "execution_objective": self.vulcan_execution_objective,
+            "technical_scope": self.vulcan_technical_scope,
+            "file_targets": list(self.vulcan_file_targets),
+            "validation_requirements": list(
+                self.vulcan_validation_requirements
+            ),
+            "risk_conditions": list(self.vulcan_risk_conditions),
+            "blocking_conditions": list(self.vulcan_blocking_conditions),
+            "prompt_interpreted": self.vulcan_prompt_interpreted,
+            "technical_objective_identified": (
+                self.vulcan_technical_objective_identified
+            ),
+            "scope_valid": self.vulcan_scope_valid,
+            "file_targets_valid": self.vulcan_file_targets_valid,
+            "validations_identified": self.vulcan_validations_identified,
+            "risks_identified": self.vulcan_risks_identified,
+            "blocking_conditions_identified": (
+                self.vulcan_blocking_conditions_identified
+            ),
+            "architecture_integrity_preserved": (
+                self.vulcan_architecture_integrity_preserved
+            ),
+            "runtime_stability_preserved": (
+                self.vulcan_runtime_stability_preserved
+            ),
+            "governance_consistency_preserved": (
+                self.vulcan_governance_consistency_preserved
+            ),
+            "technical_coherence_preserved": (
+                self.vulcan_technical_coherence_preserved
+            ),
+            "controlled_execution_ready": (
+                self.vulcan_controlled_execution_ready
+            ),
+            "execution_authorized": self.vulcan_execution_authorized,
+            "handoff_required": self.vulcan_handoff_required,
+            "report_payload": dict(self.vulcan_report_payload),
+            "protocol_lifecycle": [
+                dict(entry) for entry in self.vulcan_protocol_lifecycle
+            ],
+            "duration_ms": self.vulcan_prompt_protocol_duration_ms,
+            "reasons": list(self.vulcan_prompt_protocol_reasons),
+            "last_error": self.vulcan_prompt_protocol_last_error,
+            "metadata": dict(self.vulcan_prompt_protocol_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -7997,6 +8181,7 @@ class RuntimeStatus:
             "operational_task_discovery": (
                 self.operational_task_discovery_metrics()
             ),
+            "vulcan_prompt_protocol": self.vulcan_prompt_protocol_metrics(),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
             "response_safety": self.response_safety_metrics(),
