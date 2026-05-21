@@ -58,6 +58,7 @@ async def runtime_status(session: AsyncSession = Depends(get_session)):
         provider_routing_metrics = runner_runtime_status.provider_routing_metrics()
         self_validation_metrics = runner_runtime_status.self_validation_metrics()
         audit_request_metrics = runner_runtime_status.audit_request_metrics()
+        audit_response_metrics = runner_runtime_status.audit_response_metrics()
         response_ingestion_metrics = runner_runtime_status.response_ingestion_metrics()
         response_validation_metrics = runner_runtime_status.response_validation_metrics()
         response_safety_metrics = runner_runtime_status.response_safety_metrics()
@@ -97,6 +98,7 @@ async def runtime_status(session: AsyncSession = Depends(get_session)):
             "provider_routing": provider_routing_metrics,
             "self_validation": self_validation_metrics,
             "audit_request": audit_request_metrics,
+            "audit_response": audit_response_metrics,
             "response_ingestion": response_ingestion_metrics,
             "response_validation": response_validation_metrics,
             "response_safety": response_safety_metrics,

@@ -597,6 +597,40 @@ class RuntimeStatus:
         self.audit_request_reasons: list[str] = []
         self.audit_request_last_error: str | None = None
         self.audit_request_metadata: dict = {}
+        self.last_audit_response_at: datetime | None = None
+        self.audit_response_iteration = 0
+        self.audit_response_status = "stopped"
+        self.audit_responses_approved = 0
+        self.audit_responses_warning = 0
+        self.audit_responses_needs_fix = 0
+        self.audit_responses_rejected = 0
+        self.audit_response_errors = 0
+        self.last_audit_response_id: str | None = None
+        self.audit_response_audit_id: str | None = None
+        self.audit_response_execution_id: str | None = None
+        self.audit_response_task_id: str | None = None
+        self.audit_response_result: str | None = None
+        self.audit_response_risk_level: str | None = None
+        self.audit_response_correction_status: str | None = None
+        self.audit_response_continuation_status: str | None = None
+        self.audit_response_human_approval_status: str | None = None
+        self.audit_response_security_escalation_status: str | None = None
+        self.audit_response_centinela_escalation = False
+        self.audit_response_execution_decision: str | None = None
+        self.audit_response_context_preserved = False
+        self.audit_response_integrity_preserved = False
+        self.audit_response_warnings: list[str] = []
+        self.audit_response_detected_risks: list[str] = []
+        self.audit_response_rejection_reasons: list[str] = []
+        self.audit_response_correction_requirements: list[str] = []
+        self.audit_response_modified_files: list[str] = []
+        self.audit_response_logs: list[dict] = []
+        self.audit_response_lifecycle: list[dict] = []
+        self.audit_response_execution_context: dict = {}
+        self.audit_response_duration_ms = 0
+        self.audit_response_reasons: list[str] = []
+        self.audit_response_last_error: str | None = None
+        self.audit_response_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -2529,6 +2563,86 @@ class RuntimeStatus:
         else:
             self.audit_request_errors += 1
 
+    def mark_audit_response_result(self, result: dict) -> None:
+        self.last_audit_response_at = datetime.now(timezone.utc)
+        self.audit_response_iteration += 1
+        self.audit_response_status = result.get("status") or "unknown"
+        self.last_audit_response_id = result.get("response_id")
+        self.audit_response_audit_id = result.get("audit_id")
+        self.audit_response_execution_id = result.get("execution_id")
+        self.audit_response_task_id = result.get("task_id")
+        self.audit_response_result = result.get("audit_result")
+        self.audit_response_risk_level = result.get("risk_level")
+        self.audit_response_correction_status = result.get("correction_status")
+        self.audit_response_continuation_status = result.get(
+            "continuation_status"
+        )
+        self.audit_response_human_approval_status = result.get(
+            "human_approval_status"
+        )
+        self.audit_response_security_escalation_status = result.get(
+            "security_escalation_status"
+        )
+        self.audit_response_centinela_escalation = bool(
+            result.get("centinela_escalation")
+        )
+        self.audit_response_execution_decision = result.get("execution_decision")
+        self.audit_response_context_preserved = bool(
+            result.get("context_preserved")
+        )
+        self.audit_response_integrity_preserved = bool(
+            result.get("audit_integrity_preserved")
+        )
+        self.audit_response_warnings = [
+            str(warning) for warning in (result.get("warnings") or [])
+        ]
+        self.audit_response_detected_risks = [
+            str(risk) for risk in (result.get("detected_risks") or [])
+        ]
+        self.audit_response_rejection_reasons = [
+            str(reason) for reason in (result.get("rejection_reasons") or [])
+        ]
+        self.audit_response_correction_requirements = [
+            str(item)
+            for item in (result.get("correction_requirements") or [])
+        ]
+        self.audit_response_modified_files = [
+            str(path) for path in (result.get("modified_files") or [])
+        ]
+        self.audit_response_logs = [
+            dict(entry)
+            for entry in (result.get("audit_logs") or [])
+            if isinstance(entry, dict)
+        ]
+        self.audit_response_lifecycle = [
+            dict(entry)
+            for entry in (result.get("audit_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.audit_response_execution_context = dict(
+            result.get("execution_context") or {}
+        )
+        self.audit_response_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.audit_response_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.audit_response_last_error = result.get("error")
+        self.audit_response_metadata = dict(result.get("metadata") or {})
+
+        if self.audit_response_status == "approved":
+            self.audit_responses_approved += 1
+        elif self.audit_response_status == "approved_with_warnings":
+            self.audit_responses_warning += 1
+        elif self.audit_response_status == "needs_fix":
+            self.audit_responses_needs_fix += 1
+        elif self.audit_response_status == "rejected":
+            self.audit_responses_rejected += 1
+        else:
+            self.audit_response_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -3776,6 +3890,57 @@ class RuntimeStatus:
             "metadata": dict(self.audit_request_metadata),
         }
 
+    def audit_response_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_audit_response_at": fmt(self.last_audit_response_at),
+            "audit_response_iteration": self.audit_response_iteration,
+            "audit_response_status": self.audit_response_status,
+            "audit_responses_approved": self.audit_responses_approved,
+            "audit_responses_warning": self.audit_responses_warning,
+            "audit_responses_needs_fix": self.audit_responses_needs_fix,
+            "audit_responses_rejected": self.audit_responses_rejected,
+            "audit_response_errors": self.audit_response_errors,
+            "response_id": self.last_audit_response_id,
+            "audit_id": self.audit_response_audit_id,
+            "execution_id": self.audit_response_execution_id,
+            "task_id": self.audit_response_task_id,
+            "audit_result": self.audit_response_result,
+            "risk_level": self.audit_response_risk_level,
+            "correction_status": self.audit_response_correction_status,
+            "continuation_status": self.audit_response_continuation_status,
+            "human_approval_status": (
+                self.audit_response_human_approval_status
+            ),
+            "security_escalation_status": (
+                self.audit_response_security_escalation_status
+            ),
+            "centinela_escalation": self.audit_response_centinela_escalation,
+            "execution_decision": self.audit_response_execution_decision,
+            "context_preserved": self.audit_response_context_preserved,
+            "audit_integrity_preserved": (
+                self.audit_response_integrity_preserved
+            ),
+            "warnings": list(self.audit_response_warnings),
+            "detected_risks": list(self.audit_response_detected_risks),
+            "rejection_reasons": list(self.audit_response_rejection_reasons),
+            "correction_requirements": list(
+                self.audit_response_correction_requirements
+            ),
+            "modified_files": list(self.audit_response_modified_files),
+            "audit_logs": [dict(entry) for entry in self.audit_response_logs],
+            "audit_lifecycle": [
+                dict(entry) for entry in self.audit_response_lifecycle
+            ],
+            "execution_context": dict(self.audit_response_execution_context),
+            "duration_ms": self.audit_response_duration_ms,
+            "reasons": list(self.audit_response_reasons),
+            "last_error": self.audit_response_last_error,
+            "metadata": dict(self.audit_response_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -3974,6 +4139,7 @@ class RuntimeStatus:
             "provider_routing": self.provider_routing_metrics(),
             "self_validation": self.self_validation_metrics(),
             "audit_request": self.audit_request_metrics(),
+            "audit_response": self.audit_response_metrics(),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
             "response_safety": self.response_safety_metrics(),
