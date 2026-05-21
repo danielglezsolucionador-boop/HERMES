@@ -1609,6 +1609,42 @@ class RuntimeStatus:
         self.sentinel_security_escalation_reasons: list[str] = []
         self.sentinel_security_escalation_last_error: str | None = None
         self.sentinel_security_escalation_metadata: dict = {}
+        self.last_sentinel_audit_reporting_at: datetime | None = None
+        self.sentinel_audit_reporting_iteration = 0
+        self.sentinel_audit_reporting_status = "stopped"
+        self.sentinel_audit_reports_generated = 0
+        self.sentinel_audit_reports_blocked = 0
+        self.sentinel_audit_reporting_errors = 0
+        self.sentinel_audit_report_id: str | None = None
+        self.sentinel_report_audit_id: str | None = None
+        self.sentinel_report_execution_id: str | None = None
+        self.sentinel_report_task_id: str | None = None
+        self.sentinel_report_auditor: str | None = None
+        self.sentinel_report_audit_status: str | None = None
+        self.sentinel_report_execution_context: dict = {}
+        self.sentinel_report_validations_executed: list[str] = []
+        self.sentinel_report_runtime_status: str | None = None
+        self.sentinel_report_risks_detected: list[str] = []
+        self.sentinel_report_blocking_conditions: list[str] = []
+        self.sentinel_report_governance_status: str | None = None
+        self.sentinel_report_security_status: str | None = None
+        self.sentinel_report_final_decision: str | None = None
+        self.sentinel_report_continuity_status: str | None = None
+        self.sentinel_audit_transparency_preserved = False
+        self.sentinel_report_runtime_visibility_preserved = False
+        self.sentinel_report_execution_integrity_reported = False
+        self.sentinel_report_technical_traceability_preserved = False
+        self.sentinel_report_governance_consistency_preserved = False
+        self.sentinel_report_risks_reported = False
+        self.sentinel_report_blocking_conditions_reported = False
+        self.sentinel_audit_report_complete = False
+        self.sentinel_audit_report_text: str | None = None
+        self.sentinel_audit_reporting_payload: dict = {}
+        self.sentinel_audit_reporting_lifecycle: list[dict] = []
+        self.sentinel_audit_reporting_duration_ms = 0
+        self.sentinel_audit_reporting_reasons: list[str] = []
+        self.sentinel_audit_reporting_last_error: str | None = None
+        self.sentinel_audit_reporting_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -5981,6 +6017,89 @@ class RuntimeStatus:
         else:
             self.sentinel_security_escalation_errors += 1
 
+    def mark_sentinel_audit_reporting_result(self, result: dict) -> None:
+        self.last_sentinel_audit_reporting_at = datetime.now(timezone.utc)
+        self.sentinel_audit_reporting_iteration += 1
+        self.sentinel_audit_reporting_status = result.get("status") or "unknown"
+        self.sentinel_audit_report_id = result.get("report_id")
+        self.sentinel_report_audit_id = result.get("audit_id")
+        self.sentinel_report_execution_id = result.get("execution_id")
+        self.sentinel_report_task_id = result.get("task_id")
+        self.sentinel_report_auditor = result.get("auditor")
+        self.sentinel_report_audit_status = result.get("audit_status")
+        self.sentinel_report_execution_context = dict(
+            result.get("execution_context") or {}
+        )
+        self.sentinel_report_validations_executed = [
+            str(item) for item in (result.get("validations_executed") or [])
+        ]
+        self.sentinel_report_runtime_status = result.get("runtime_status")
+        self.sentinel_report_risks_detected = [
+            str(item) for item in (result.get("risks_detected") or [])
+        ]
+        self.sentinel_report_blocking_conditions = [
+            str(item) for item in (result.get("blocking_conditions") or [])
+        ]
+        self.sentinel_report_governance_status = result.get(
+            "governance_status"
+        )
+        self.sentinel_report_security_status = result.get("security_status")
+        self.sentinel_report_final_decision = result.get("final_decision")
+        self.sentinel_report_continuity_status = result.get(
+            "continuity_status"
+        )
+        self.sentinel_audit_transparency_preserved = bool(
+            result.get("audit_transparency_preserved")
+        )
+        self.sentinel_report_runtime_visibility_preserved = bool(
+            result.get("runtime_visibility_preserved")
+        )
+        self.sentinel_report_execution_integrity_reported = bool(
+            result.get("execution_integrity_reported")
+        )
+        self.sentinel_report_technical_traceability_preserved = bool(
+            result.get("technical_traceability_preserved")
+        )
+        self.sentinel_report_governance_consistency_preserved = bool(
+            result.get("governance_consistency_preserved")
+        )
+        self.sentinel_report_risks_reported = bool(
+            result.get("risks_reported")
+        )
+        self.sentinel_report_blocking_conditions_reported = bool(
+            result.get("blocking_conditions_reported")
+        )
+        self.sentinel_audit_report_complete = bool(
+            result.get("report_complete")
+        )
+        self.sentinel_audit_report_text = result.get("report_text")
+        self.sentinel_audit_reporting_payload = dict(
+            result.get("report_payload") or {}
+        )
+        self.sentinel_audit_reporting_lifecycle = [
+            dict(entry)
+            for entry in (result.get("report_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.sentinel_audit_reporting_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.sentinel_audit_reporting_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.sentinel_audit_reporting_last_error = result.get("error")
+        self.sentinel_audit_reporting_metadata = dict(
+            result.get("metadata") or {}
+        )
+
+        if self.sentinel_audit_reporting_status == "generated":
+            self.sentinel_audit_reports_generated += 1
+        elif self.sentinel_audit_reporting_status == "blocked":
+            self.sentinel_audit_reports_blocked += 1
+        else:
+            self.sentinel_audit_reporting_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -9141,6 +9260,79 @@ class RuntimeStatus:
             "metadata": dict(self.sentinel_security_escalation_metadata),
         }
 
+    def sentinel_audit_reporting_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_sentinel_audit_reporting_at": fmt(
+                self.last_sentinel_audit_reporting_at
+            ),
+            "sentinel_audit_reporting_iteration": (
+                self.sentinel_audit_reporting_iteration
+            ),
+            "sentinel_audit_reporting_status": (
+                self.sentinel_audit_reporting_status
+            ),
+            "sentinel_audit_reports_generated": (
+                self.sentinel_audit_reports_generated
+            ),
+            "sentinel_audit_reports_blocked": (
+                self.sentinel_audit_reports_blocked
+            ),
+            "sentinel_audit_reporting_errors": (
+                self.sentinel_audit_reporting_errors
+            ),
+            "report_id": self.sentinel_audit_report_id,
+            "audit_id": self.sentinel_report_audit_id,
+            "execution_id": self.sentinel_report_execution_id,
+            "task_id": self.sentinel_report_task_id,
+            "auditor": self.sentinel_report_auditor,
+            "audit_status": self.sentinel_report_audit_status,
+            "execution_context": dict(self.sentinel_report_execution_context),
+            "validations_executed": list(
+                self.sentinel_report_validations_executed
+            ),
+            "runtime_status": self.sentinel_report_runtime_status,
+            "risks_detected": list(self.sentinel_report_risks_detected),
+            "blocking_conditions": list(
+                self.sentinel_report_blocking_conditions
+            ),
+            "governance_status": self.sentinel_report_governance_status,
+            "security_status": self.sentinel_report_security_status,
+            "final_decision": self.sentinel_report_final_decision,
+            "continuity_status": self.sentinel_report_continuity_status,
+            "audit_transparency_preserved": (
+                self.sentinel_audit_transparency_preserved
+            ),
+            "runtime_visibility_preserved": (
+                self.sentinel_report_runtime_visibility_preserved
+            ),
+            "execution_integrity_reported": (
+                self.sentinel_report_execution_integrity_reported
+            ),
+            "technical_traceability_preserved": (
+                self.sentinel_report_technical_traceability_preserved
+            ),
+            "governance_consistency_preserved": (
+                self.sentinel_report_governance_consistency_preserved
+            ),
+            "risks_reported": self.sentinel_report_risks_reported,
+            "blocking_conditions_reported": (
+                self.sentinel_report_blocking_conditions_reported
+            ),
+            "report_complete": self.sentinel_audit_report_complete,
+            "report_text": self.sentinel_audit_report_text,
+            "report_payload": dict(self.sentinel_audit_reporting_payload),
+            "report_lifecycle": [
+                dict(entry) for entry in self.sentinel_audit_reporting_lifecycle
+            ],
+            "duration_ms": self.sentinel_audit_reporting_duration_ms,
+            "reasons": list(self.sentinel_audit_reporting_reasons),
+            "last_error": self.sentinel_audit_reporting_last_error,
+            "metadata": dict(self.sentinel_audit_reporting_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -9376,6 +9568,9 @@ class RuntimeStatus:
             ),
             "sentinel_security_escalation": (
                 self.sentinel_security_escalation_metrics()
+            ),
+            "sentinel_audit_reporting": (
+                self.sentinel_audit_reporting_metrics()
             ),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),

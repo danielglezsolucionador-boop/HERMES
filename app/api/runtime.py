@@ -126,6 +126,9 @@ async def runtime_status(session: AsyncSession = Depends(get_session)):
         sentinel_security_escalation_metrics = (
             runner_runtime_status.sentinel_security_escalation_metrics()
         )
+        sentinel_audit_reporting_metrics = (
+            runner_runtime_status.sentinel_audit_reporting_metrics()
+        )
         response_ingestion_metrics = runner_runtime_status.response_ingestion_metrics()
         response_validation_metrics = runner_runtime_status.response_validation_metrics()
         response_safety_metrics = runner_runtime_status.response_safety_metrics()
@@ -197,6 +200,7 @@ async def runtime_status(session: AsyncSession = Depends(get_session)):
             "sentinel_security_escalation": (
                 sentinel_security_escalation_metrics
             ),
+            "sentinel_audit_reporting": sentinel_audit_reporting_metrics,
             "response_ingestion": response_ingestion_metrics,
             "response_validation": response_validation_metrics,
             "response_safety": response_safety_metrics,
