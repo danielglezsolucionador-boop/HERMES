@@ -320,6 +320,35 @@ async def test_runtime_loop_records_execution_safety_metrics():
 
 
 @pytest.mark.asyncio
+async def test_runtime_loop_initializes_response_ingestion_metrics():
+    async def two_discovered_tasks() -> TaskDiscoveryResult:
+        return TaskDiscoveryResult.from_count(2)
+
+    status = RuntimeStatus()
+    loop = RuntimeLoop(
+        status=status,
+        interval_seconds=0.01,
+        min_interval_seconds=0.01,
+        heartbeat_log_every=1000,
+        task_discovery=two_discovered_tasks,
+        response_ingestion_enabled=True,
+    )
+
+    task = asyncio.create_task(loop.run())
+    await asyncio.sleep(0.03)
+    response_ingestion = status.response_ingestion_metrics()
+    loop.request_stop("test_stop")
+    await asyncio.wait_for(task, timeout=1)
+
+    assert response_ingestion["response_ingestion_enabled"] is True
+    assert response_ingestion["response_ingestion_status"] == "active"
+    assert response_ingestion["ingestion_state"] == "ready"
+    assert response_ingestion["responses_received"] == 0
+    assert response_ingestion["active_ingestions"] == 0
+    assert response_ingestion["max_concurrent_ingestions"] == 1
+
+
+@pytest.mark.asyncio
 async def test_runtime_loop_blocks_claiming_when_pickup_safety_blocks():
     async def two_discovered_tasks() -> TaskDiscoveryResult:
         return TaskDiscoveryResult.from_count(2)

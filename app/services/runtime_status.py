@@ -215,6 +215,41 @@ class RuntimeStatus:
         self.provider_duration_ms = 0
         self.provider_usage: dict = {}
         self.provider_bridge_reasons: list[str] = []
+        self.response_ingestion_started_at: datetime | None = None
+        self.last_response_ingestion_at: datetime | None = None
+        self.response_ingestion_iteration = 0
+        self.response_ingestion_enabled = False
+        self.response_ingestion_status = "stopped"
+        self.response_ingestion_state: str | None = None
+        self.response_ingestion_interval_seconds = 0.0
+        self.response_ingestion_last_duration_ms = 0
+        self.response_ingestion_errors = 0
+        self.response_ingestion_last_error: str | None = None
+        self.responses_received = 0
+        self.responses_ingested = 0
+        self.responses_rejected = 0
+        self.responses_failed = 0
+        self.active_response_ingestions = 0
+        self.max_concurrent_response_ingestions = 0
+        self.max_response_ingestion_bytes = 0
+        self.response_ingestion_size_bytes = 0
+        self.max_response_ingestion_duration_ms = 0
+        self.response_ingestion_runtime_load: float | None = None
+        self.max_response_ingestion_runtime_load = 0.0
+        self.last_response_id: str | None = None
+        self.last_response_execution_id: str | None = None
+        self.last_response_task_id: str | None = None
+        self.last_response_runtime_id: str | None = None
+        self.last_response_execution_owner: str | None = None
+        self.last_response_provider_source: str | None = None
+        self.last_response_provider_request_id: str | None = None
+        self.last_response_model: str | None = None
+        self.last_response_received_at: str | None = None
+        self.last_response_started_at: str | None = None
+        self.last_response_finished_at: str | None = None
+        self.response_storage_prepared = False
+        self.response_ingestion_metadata: dict = {}
+        self.response_ingestion_reasons: list[str] = []
         self.runtime_safe = True
         self.consecutive_errors = 0
         self.degraded_state = False
@@ -343,6 +378,7 @@ class RuntimeStatus:
         self.execution_status = "stopped"
         self.execution_safety_status = "stopped"
         self.provider_bridge_status = "stopped"
+        self.response_ingestion_status = "stopped"
 
     def configure_safety_event_limit(self, limit: int) -> None:
         self.safety_event_limit = max(1, int(limit or 1))
@@ -962,6 +998,115 @@ class RuntimeStatus:
         self.provider_bridge_status = "error"
         self.provider_bridge_last_error = error or "unknown_provider_bridge_error"
 
+    def mark_response_ingestion_started(
+        self,
+        enabled: bool,
+        interval_seconds: float,
+        max_concurrent_ingestions: int = 0,
+        max_response_bytes: int = 0,
+        max_ingestion_duration_ms: int = 0,
+        max_runtime_ingestion_load: float = 0.0,
+    ) -> None:
+        self.response_ingestion_started_at = datetime.now(timezone.utc)
+        self.response_ingestion_enabled = bool(enabled)
+        self.response_ingestion_status = "active" if enabled else "disabled"
+        self.response_ingestion_state = "ready" if enabled else "disabled"
+        self.response_ingestion_interval_seconds = interval_seconds
+        self.max_concurrent_response_ingestions = max(
+            0,
+            int(max_concurrent_ingestions or 0),
+        )
+        self.max_response_ingestion_bytes = max(0, int(max_response_bytes or 0))
+        self.max_response_ingestion_duration_ms = max(
+            0,
+            int(max_ingestion_duration_ms or 0),
+        )
+        self.max_response_ingestion_runtime_load = max(
+            0.0,
+            float(max_runtime_ingestion_load or 0.0),
+        )
+        self.response_ingestion_last_error = None
+
+    def mark_response_ingestion_result(self, result: dict) -> None:
+        self.last_response_ingestion_at = datetime.now(timezone.utc)
+        self.response_ingestion_iteration += 1
+        self.response_ingestion_status = result.get("status") or "unknown"
+        self.response_ingestion_state = result.get("ingestion_state")
+        self.response_ingestion_last_duration_ms = max(
+            0,
+            int(result.get("ingestion_duration_ms") or result.get("duration_ms") or 0),
+        )
+        self.active_response_ingestions = max(
+            0,
+            int(result.get("active_ingestions") or 0),
+        )
+        self.max_concurrent_response_ingestions = max(
+            0,
+            int(result.get("max_concurrent_ingestions") or 0),
+        )
+        self.max_response_ingestion_bytes = max(
+            0,
+            int(result.get("max_response_bytes") or 0),
+        )
+        self.response_ingestion_size_bytes = max(
+            0,
+            int(result.get("response_size_bytes") or 0),
+        )
+        self.max_response_ingestion_duration_ms = max(
+            0,
+            int(result.get("max_ingestion_duration_ms") or 0),
+        )
+        runtime_load = result.get("runtime_ingestion_load")
+        self.response_ingestion_runtime_load = (
+            float(runtime_load) if runtime_load is not None else None
+        )
+        self.max_response_ingestion_runtime_load = max(
+            0.0,
+            float(result.get("max_runtime_ingestion_load") or 0.0),
+        )
+        self.last_response_id = result.get("response_id")
+        self.last_response_execution_id = result.get("execution_id")
+        self.last_response_task_id = result.get("task_id")
+        self.last_response_runtime_id = result.get("runtime_id")
+        self.last_response_execution_owner = result.get("execution_owner")
+        self.last_response_provider_source = result.get("provider_source")
+        self.last_response_provider_request_id = result.get("provider_request_id")
+        self.last_response_model = result.get("model")
+        self.last_response_received_at = result.get("received_at")
+        self.last_response_started_at = result.get("started_at")
+        self.last_response_finished_at = result.get("finished_at")
+        self.response_storage_prepared = bool(result.get("storage_prepared"))
+        self.response_ingestion_metadata = dict(result.get("metadata") or {})
+        self.response_ingestion_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.response_ingestion_last_error = result.get("error")
+
+        if self.response_ingestion_status == "ingested":
+            self.responses_received += 1
+            self.responses_ingested += 1
+        elif self.response_ingestion_status == "rejected":
+            self.responses_rejected += 1
+        elif self.response_ingestion_status == "error":
+            self.responses_failed += 1
+            self.response_ingestion_errors += 1
+
+    def mark_response_ingestion_error(
+        self,
+        error: str,
+        duration_ms: int = 0,
+    ) -> None:
+        self.last_response_ingestion_at = datetime.now(timezone.utc)
+        self.response_ingestion_iteration += 1
+        self.response_ingestion_last_duration_ms = max(0, int(duration_ms or 0))
+        self.response_ingestion_errors += 1
+        self.responses_failed += 1
+        self.response_ingestion_status = "error"
+        self.response_ingestion_state = "error"
+        self.response_ingestion_last_error = (
+            error or "unknown_response_ingestion_error"
+        )
+
     def ai_metrics(self) -> dict:
         avg_duration = 0
         avg_provider = 0
@@ -1293,6 +1438,58 @@ class RuntimeStatus:
             "reasons": list(self.provider_bridge_reasons),
         }
 
+    def response_ingestion_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "started_at": fmt(self.response_ingestion_started_at),
+            "last_response_ingestion_at": fmt(self.last_response_ingestion_at),
+            "response_ingestion_iteration": self.response_ingestion_iteration,
+            "response_ingestion_enabled": self.response_ingestion_enabled,
+            "response_ingestion_status": self.response_ingestion_status,
+            "ingestion_state": self.response_ingestion_state,
+            "response_ingestion_interval_seconds": (
+                self.response_ingestion_interval_seconds
+            ),
+            "response_ingestion_last_duration_ms": (
+                self.response_ingestion_last_duration_ms
+            ),
+            "response_ingestion_errors": self.response_ingestion_errors,
+            "response_ingestion_last_error": self.response_ingestion_last_error,
+            "responses_received": self.responses_received,
+            "responses_ingested": self.responses_ingested,
+            "responses_rejected": self.responses_rejected,
+            "responses_failed": self.responses_failed,
+            "active_ingestions": self.active_response_ingestions,
+            "max_concurrent_ingestions": (
+                self.max_concurrent_response_ingestions
+            ),
+            "max_response_bytes": self.max_response_ingestion_bytes,
+            "response_size_bytes": self.response_ingestion_size_bytes,
+            "max_ingestion_duration_ms": (
+                self.max_response_ingestion_duration_ms
+            ),
+            "runtime_ingestion_load": self.response_ingestion_runtime_load,
+            "max_runtime_ingestion_load": (
+                self.max_response_ingestion_runtime_load
+            ),
+            "response_id": self.last_response_id,
+            "execution_id": self.last_response_execution_id,
+            "task_id": self.last_response_task_id,
+            "runtime_id": self.last_response_runtime_id,
+            "execution_owner": self.last_response_execution_owner,
+            "provider_source": self.last_response_provider_source,
+            "provider_request_id": self.last_response_provider_request_id,
+            "model": self.last_response_model,
+            "received_at": self.last_response_received_at,
+            "started_at_response": self.last_response_started_at,
+            "finished_at_response": self.last_response_finished_at,
+            "storage_prepared": self.response_storage_prepared,
+            "metadata": dict(self.response_ingestion_metadata),
+            "reasons": list(self.response_ingestion_reasons),
+        }
+
     def to_dict(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -1317,6 +1514,7 @@ class RuntimeStatus:
             "execution": self.execution_metrics(),
             "execution_safety": self.execution_safety_metrics(),
             "provider_bridge": self.provider_bridge_metrics(),
+            "response_ingestion": self.response_ingestion_metrics(),
             "safety": self.safety_metrics(),
         }
         data.update(self.ai_metrics())
