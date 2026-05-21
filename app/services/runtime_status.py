@@ -1962,6 +1962,45 @@ class RuntimeStatus:
         self.workflow_validation_reasons: list[str] = []
         self.workflow_validation_last_error: str | None = None
         self.workflow_validation_metadata: dict = {}
+        self.last_stress_test_at: datetime | None = None
+        self.stress_test_iteration = 0
+        self.stress_test_status = "stopped"
+        self.stress_tests_passed = 0
+        self.stress_tests_blocked = 0
+        self.stress_test_errors = 0
+        self.stress_test_id: str | None = None
+        self.stress_test_workflow_id: str | None = None
+        self.stress_test_runtime_status: str | None = None
+        self.stress_test_continuation_status: str | None = None
+        self.stress_test_governance_status: str | None = None
+        self.stress_test_recovery_status: str | None = None
+        self.stress_test_runtime_load: float | None = None
+        self.stress_test_workflow_concurrency = 0
+        self.stress_test_duration_seconds = 0.0
+        self.stress_test_execution_cycles = 0
+        self.stress_test_successful_cycles = 0
+        self.stress_test_failed_cycles = 0
+        self.stress_test_memory_usage_mb: float | None = None
+        self.stress_test_memory_growth_mb = 0.0
+        self.stress_test_runtime_integrity_valid = False
+        self.stress_test_execution_continuity_valid = False
+        self.stress_test_performance_status_valid = False
+        self.stress_test_memory_stability_valid = False
+        self.stress_test_governance_stability_valid = False
+        self.stress_test_recovery_status_valid = False
+        self.stress_test_operational_resilience_valid = False
+        self.stress_test_safe = False
+        self.stress_test_continuation_allowed = False
+        self.stress_test_degradation_detected = False
+        self.stress_test_failure_conditions: list[str] = []
+        self.stress_test_bottlenecks: list[str] = []
+        self.stress_test_report: dict = {}
+        self.stress_test_visibility_payload: dict = {}
+        self.stress_test_lifecycle: list[dict] = []
+        self.stress_test_duration_ms = 0
+        self.stress_test_reasons: list[str] = []
+        self.stress_test_last_error: str | None = None
+        self.stress_test_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -7272,6 +7311,104 @@ class RuntimeStatus:
         else:
             self.workflow_validation_errors += 1
 
+    def mark_stress_test_result(self, result: dict) -> None:
+        self.last_stress_test_at = datetime.now(timezone.utc)
+        self.stress_test_iteration += 1
+        self.stress_test_status = result.get("status") or "unknown"
+        self.stress_test_id = result.get("stress_id")
+        self.stress_test_workflow_id = result.get("workflow_id")
+        self.stress_test_runtime_status = result.get("runtime_status")
+        self.stress_test_continuation_status = result.get(
+            "continuation_status"
+        )
+        self.stress_test_governance_status = result.get("governance_status")
+        self.stress_test_recovery_status = result.get("recovery_status")
+        self.stress_test_runtime_load = result.get("runtime_load")
+        self.stress_test_workflow_concurrency = max(
+            0,
+            int(result.get("workflow_concurrency") or 0),
+        )
+        self.stress_test_duration_seconds = max(
+            0.0,
+            float(result.get("duration_seconds") or 0.0),
+        )
+        self.stress_test_execution_cycles = max(
+            0,
+            int(result.get("execution_cycles") or 0),
+        )
+        self.stress_test_successful_cycles = max(
+            0,
+            int(result.get("successful_cycles") or 0),
+        )
+        self.stress_test_failed_cycles = max(
+            0,
+            int(result.get("failed_cycles") or 0),
+        )
+        self.stress_test_memory_usage_mb = result.get("memory_usage_mb")
+        self.stress_test_memory_growth_mb = max(
+            0.0,
+            float(result.get("memory_growth_mb") or 0.0),
+        )
+        self.stress_test_runtime_integrity_valid = bool(
+            result.get("runtime_integrity_valid")
+        )
+        self.stress_test_execution_continuity_valid = bool(
+            result.get("execution_continuity_valid")
+        )
+        self.stress_test_performance_status_valid = bool(
+            result.get("performance_status_valid")
+        )
+        self.stress_test_memory_stability_valid = bool(
+            result.get("memory_stability_valid")
+        )
+        self.stress_test_governance_stability_valid = bool(
+            result.get("governance_stability_valid")
+        )
+        self.stress_test_recovery_status_valid = bool(
+            result.get("recovery_status_valid")
+        )
+        self.stress_test_operational_resilience_valid = bool(
+            result.get("operational_resilience_valid")
+        )
+        self.stress_test_safe = bool(result.get("stress_safe"))
+        self.stress_test_continuation_allowed = bool(
+            result.get("continuation_allowed")
+        )
+        self.stress_test_degradation_detected = bool(
+            result.get("degradation_detected")
+        )
+        self.stress_test_failure_conditions = [
+            str(item) for item in (result.get("failure_conditions") or [])
+        ]
+        self.stress_test_bottlenecks = [
+            str(item) for item in (result.get("bottlenecks") or [])
+        ]
+        self.stress_test_report = dict(result.get("stress_report") or {})
+        self.stress_test_visibility_payload = dict(
+            result.get("human_visibility_payload") or {}
+        )
+        self.stress_test_lifecycle = [
+            dict(entry)
+            for entry in (result.get("stress_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.stress_test_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.stress_test_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.stress_test_last_error = result.get("error")
+        self.stress_test_metadata = dict(result.get("metadata") or {})
+
+        if self.stress_test_status == "passed":
+            self.stress_tests_passed += 1
+        elif self.stress_test_status == "blocked":
+            self.stress_tests_blocked += 1
+        else:
+            self.stress_test_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -11235,6 +11372,68 @@ class RuntimeStatus:
             "metadata": dict(self.workflow_validation_metadata),
         }
 
+    def stress_tests_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_stress_test_at": fmt(self.last_stress_test_at),
+            "stress_test_iteration": self.stress_test_iteration,
+            "stress_test_status": self.stress_test_status,
+            "stress_tests_passed": self.stress_tests_passed,
+            "stress_tests_blocked": self.stress_tests_blocked,
+            "stress_test_errors": self.stress_test_errors,
+            "stress_id": self.stress_test_id,
+            "workflow_id": self.stress_test_workflow_id,
+            "runtime_status": self.stress_test_runtime_status,
+            "continuation_status": self.stress_test_continuation_status,
+            "governance_status": self.stress_test_governance_status,
+            "recovery_status": self.stress_test_recovery_status,
+            "runtime_load": self.stress_test_runtime_load,
+            "workflow_concurrency": self.stress_test_workflow_concurrency,
+            "duration_seconds": self.stress_test_duration_seconds,
+            "execution_cycles": self.stress_test_execution_cycles,
+            "successful_cycles": self.stress_test_successful_cycles,
+            "failed_cycles": self.stress_test_failed_cycles,
+            "memory_usage_mb": self.stress_test_memory_usage_mb,
+            "memory_growth_mb": self.stress_test_memory_growth_mb,
+            "runtime_integrity_valid": (
+                self.stress_test_runtime_integrity_valid
+            ),
+            "execution_continuity_valid": (
+                self.stress_test_execution_continuity_valid
+            ),
+            "performance_status_valid": (
+                self.stress_test_performance_status_valid
+            ),
+            "memory_stability_valid": (
+                self.stress_test_memory_stability_valid
+            ),
+            "governance_stability_valid": (
+                self.stress_test_governance_stability_valid
+            ),
+            "recovery_status_valid": self.stress_test_recovery_status_valid,
+            "operational_resilience_valid": (
+                self.stress_test_operational_resilience_valid
+            ),
+            "stress_safe": self.stress_test_safe,
+            "continuation_allowed": self.stress_test_continuation_allowed,
+            "degradation_detected": self.stress_test_degradation_detected,
+            "failure_conditions": list(self.stress_test_failure_conditions),
+            "bottlenecks": list(self.stress_test_bottlenecks),
+            "stress_report": dict(self.stress_test_report),
+            "human_visibility_payload": dict(
+                self.stress_test_visibility_payload
+            ),
+            "stress_lifecycle": [
+                dict(entry) for entry in self.stress_test_lifecycle
+            ],
+            "duration_ms": self.stress_test_duration_ms,
+            "reasons": list(self.stress_test_reasons),
+            "last_error": self.stress_test_last_error,
+            "metadata": dict(self.stress_test_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -11500,6 +11699,7 @@ class RuntimeStatus:
                 self.workflow_recovery_control_metrics()
             ),
             "workflow_validation": self.workflow_validation_metrics(),
+            "stress_tests": self.stress_tests_metrics(),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
             "response_safety": self.response_safety_metrics(),
