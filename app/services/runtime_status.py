@@ -2113,6 +2113,34 @@ class RuntimeStatus:
         self.long_running_validation_reasons: list[str] = []
         self.long_running_validation_last_error: str | None = None
         self.long_running_validation_metadata: dict = {}
+        self.last_observability_base_at: datetime | None = None
+        self.observability_base_iteration = 0
+        self.observability_base_status = "stopped"
+        self.observability_snapshots_created = 0
+        self.observability_snapshots_blocked = 0
+        self.observability_base_errors = 0
+        self.observability_base_id: str | None = None
+        self.observability_base_workflow_id: str | None = None
+        self.observability_runtime_visibility_valid = False
+        self.observability_execution_visibility_valid = False
+        self.observability_performance_metrics_valid = False
+        self.observability_governance_transparency_valid = False
+        self.observability_continuity_visibility_valid = False
+        self.observability_workflow_traceability_valid = False
+        self.observability_operational_stability_valid = False
+        self.observability_consistent = False
+        self.observability_continuation_allowed = False
+        self.observability_anomalies_detected = False
+        self.observability_degradation_detected = False
+        self.observability_observed_components: list[str] = []
+        self.observability_anomaly_conditions: list[str] = []
+        self.observability_report: dict = {}
+        self.observability_visibility_payload: dict = {}
+        self.observability_lifecycle: list[dict] = []
+        self.observability_duration_ms = 0
+        self.observability_reasons: list[str] = []
+        self.observability_last_error: str | None = None
+        self.observability_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -7808,6 +7836,79 @@ class RuntimeStatus:
         else:
             self.long_running_validation_errors += 1
 
+    def mark_observability_base_result(self, result: dict) -> None:
+        self.last_observability_base_at = datetime.now(timezone.utc)
+        self.observability_base_iteration += 1
+        self.observability_base_status = result.get("status") or "unknown"
+        self.observability_base_id = result.get("observation_id")
+        self.observability_base_workflow_id = result.get("workflow_id")
+        self.observability_runtime_visibility_valid = bool(
+            result.get("runtime_visibility_valid")
+        )
+        self.observability_execution_visibility_valid = bool(
+            result.get("execution_visibility_valid")
+        )
+        self.observability_performance_metrics_valid = bool(
+            result.get("performance_metrics_valid")
+        )
+        self.observability_governance_transparency_valid = bool(
+            result.get("governance_transparency_valid")
+        )
+        self.observability_continuity_visibility_valid = bool(
+            result.get("continuity_visibility_valid")
+        )
+        self.observability_workflow_traceability_valid = bool(
+            result.get("workflow_traceability_valid")
+        )
+        self.observability_operational_stability_valid = bool(
+            result.get("operational_stability_valid")
+        )
+        self.observability_consistent = bool(
+            result.get("observability_consistent")
+        )
+        self.observability_continuation_allowed = bool(
+            result.get("continuation_allowed")
+        )
+        self.observability_anomalies_detected = bool(
+            result.get("anomalies_detected")
+        )
+        self.observability_degradation_detected = bool(
+            result.get("degradation_detected")
+        )
+        self.observability_observed_components = [
+            str(item) for item in (result.get("observed_components") or [])
+        ]
+        self.observability_anomaly_conditions = [
+            str(item) for item in (result.get("anomaly_conditions") or [])
+        ]
+        self.observability_report = dict(
+            result.get("observability_report") or {}
+        )
+        self.observability_visibility_payload = dict(
+            result.get("human_visibility_payload") or {}
+        )
+        self.observability_lifecycle = [
+            dict(entry)
+            for entry in (result.get("observability_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.observability_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.observability_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.observability_last_error = result.get("error")
+        self.observability_metadata = dict(result.get("metadata") or {})
+
+        if self.observability_base_status == "observed":
+            self.observability_snapshots_created += 1
+        elif self.observability_base_status == "blocked":
+            self.observability_snapshots_blocked += 1
+        else:
+            self.observability_base_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -12083,6 +12184,69 @@ class RuntimeStatus:
             "metadata": dict(self.long_running_validation_metadata),
         }
 
+    def observability_base_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_observability_base_at": fmt(
+                self.last_observability_base_at
+            ),
+            "observability_base_iteration": self.observability_base_iteration,
+            "observability_base_status": self.observability_base_status,
+            "observability_snapshots_created": (
+                self.observability_snapshots_created
+            ),
+            "observability_snapshots_blocked": (
+                self.observability_snapshots_blocked
+            ),
+            "observability_base_errors": self.observability_base_errors,
+            "observation_id": self.observability_base_id,
+            "workflow_id": self.observability_base_workflow_id,
+            "runtime_visibility_valid": (
+                self.observability_runtime_visibility_valid
+            ),
+            "execution_visibility_valid": (
+                self.observability_execution_visibility_valid
+            ),
+            "performance_metrics_valid": (
+                self.observability_performance_metrics_valid
+            ),
+            "governance_transparency_valid": (
+                self.observability_governance_transparency_valid
+            ),
+            "continuity_visibility_valid": (
+                self.observability_continuity_visibility_valid
+            ),
+            "workflow_traceability_valid": (
+                self.observability_workflow_traceability_valid
+            ),
+            "operational_stability_valid": (
+                self.observability_operational_stability_valid
+            ),
+            "observability_consistent": self.observability_consistent,
+            "continuation_allowed": self.observability_continuation_allowed,
+            "anomalies_detected": self.observability_anomalies_detected,
+            "degradation_detected": self.observability_degradation_detected,
+            "observed_components": list(
+                self.observability_observed_components
+            ),
+            "anomaly_conditions": list(
+                self.observability_anomaly_conditions
+            ),
+            "observability_report": dict(self.observability_report),
+            "human_visibility_payload": dict(
+                self.observability_visibility_payload
+            ),
+            "observability_lifecycle": [
+                dict(entry) for entry in self.observability_lifecycle
+            ],
+            "duration_ms": self.observability_duration_ms,
+            "reasons": list(self.observability_reasons),
+            "last_error": self.observability_last_error,
+            "metadata": dict(self.observability_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -12354,6 +12518,7 @@ class RuntimeStatus:
             "long_running_validation": (
                 self.long_running_validation_metrics()
             ),
+            "observability_base": self.observability_base_metrics(),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
             "response_safety": self.response_safety_metrics(),
