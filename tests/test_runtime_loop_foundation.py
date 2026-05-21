@@ -34,6 +34,9 @@ async def test_runtime_loop_heartbeat_pause_resume_and_stop():
     assert running["state"] == "active"
     assert running["iteration"] > 0
     assert running["last_heartbeat_at"] is not None
+    assert status.health_status() == "healthy"
+    assert status.to_dict()["runner_alive"] is True
+    assert status.to_dict()["last_loop_at"] is not None
     assert safety["runtime_safe"] is True
     assert safety["consecutive_errors"] == 0
     assert safety["degraded_state"] is False
@@ -54,6 +57,7 @@ async def test_runtime_loop_heartbeat_pause_resume_and_stop():
     assert stopped["state"] == "stopped"
     assert stopped["stop_requested"] is True
     assert stopped["stop_reason"] == "test_stop"
+    assert status.health_status() == "offline"
 
 
 @pytest.mark.asyncio

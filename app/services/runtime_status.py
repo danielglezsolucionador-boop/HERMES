@@ -2396,6 +2396,9 @@ class RuntimeStatus:
 
     def mark_runtime_loop_started(self, interval_seconds: float) -> None:
         self.runtime_loop_started_at = datetime.now(timezone.utc)
+        if self.runner_started_at is None:
+            self.runner_started_at = self.runtime_loop_started_at
+        self.runner_alive = True
         self.runtime_loop_last_heartbeat_at = None
         self.runtime_loop_last_cycle_duration_ms = 0
         self.runtime_loop_iteration = 0
@@ -2415,16 +2418,22 @@ class RuntimeStatus:
         state: str = "active",
         cycle_duration_ms: int = 0,
     ) -> None:
-        self.runtime_loop_last_heartbeat_at = datetime.now(timezone.utc)
+        heartbeat_at = datetime.now(timezone.utc)
+        self.runtime_loop_last_heartbeat_at = heartbeat_at
+        self.last_loop_at = heartbeat_at
         self.runtime_loop_last_cycle_duration_ms = max(0, int(cycle_duration_ms or 0))
         self.runtime_loop_iteration += 1
         self.runtime_loop_alive = True
+        self.runner_alive = True
         self.runtime_loop_state = state
         self.runtime_loop_stop_requested = False
 
     def mark_runtime_loop_paused(self) -> None:
-        self.runtime_loop_last_heartbeat_at = datetime.now(timezone.utc)
+        heartbeat_at = datetime.now(timezone.utc)
+        self.runtime_loop_last_heartbeat_at = heartbeat_at
+        self.last_loop_at = heartbeat_at
         self.runtime_loop_alive = True
+        self.runner_alive = True
         self.runtime_loop_state = "paused"
 
     def request_runtime_loop_stop(self, reason: str = "stop_requested") -> None:
@@ -2433,6 +2442,7 @@ class RuntimeStatus:
 
     def mark_runtime_loop_stopped(self, reason: str = "stopped") -> None:
         self.runtime_loop_alive = False
+        self.runner_alive = False
         self.runtime_loop_state = "stopped"
         self.runtime_loop_stop_requested = True
         self.runtime_loop_stop_reason = reason
