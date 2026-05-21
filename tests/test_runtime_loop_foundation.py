@@ -1,0 +1,76 @@
+import asyncio
+
+import pytest
+
+from app.runner.runtime_loop import RuntimeLoop
+from app.services.runtime_status import RuntimeStatus
+
+
+@pytest.mark.asyncio
+async def test_runtime_loop_heartbeat_pause_resume_and_stop():
+    status = RuntimeStatus()
+    loop = RuntimeLoop(
+        status=status,
+        interval_seconds=0.01,
+        min_interval_seconds=0.01,
+        heartbeat_log_every=1000,
+    )
+
+    task = asyncio.create_task(loop.run())
+    await asyncio.sleep(0.04)
+
+    running = status.runtime_loop_metrics()
+    assert running["alive"] is True
+    assert running["status"] == "healthy"
+    assert running["state"] == "active"
+    assert running["iteration"] > 0
+    assert running["last_heartbeat_at"] is not None
+
+    loop.pause()
+    await asyncio.sleep(0.02)
+    assert status.runtime_loop_metrics()["state"] == "paused"
+
+    loop.resume()
+    await asyncio.sleep(0.02)
+    assert status.runtime_loop_metrics()["state"] == "active"
+
+    loop.request_stop("test_stop")
+    await asyncio.wait_for(task, timeout=1)
+
+    stopped = status.runtime_loop_metrics()
+    assert stopped["alive"] is False
+    assert stopped["state"] == "stopped"
+    assert stopped["stop_requested"] is True
+    assert stopped["stop_reason"] == "test_stop"
+
+
+@pytest.mark.asyncio
+async def test_runtime_loop_survives_cycle_error_without_busy_loop():
+    class FailingOnceLoop(RuntimeLoop):
+        def __init__(self, status: RuntimeStatus) -> None:
+            super().__init__(
+                status=status,
+                interval_seconds=0.01,
+                min_interval_seconds=0.01,
+                heartbeat_log_every=1000,
+            )
+            self.calls = 0
+
+        async def _cycle(self) -> str:
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("simulated runtime cycle failure")
+            return await super()._cycle()
+
+    status = RuntimeStatus()
+    loop = FailingOnceLoop(status=status)
+    task = asyncio.create_task(loop.run())
+    await asyncio.sleep(0.04)
+    loop.request_stop("test_stop")
+    await asyncio.wait_for(task, timeout=1)
+
+    metrics = status.runtime_loop_metrics()
+    assert loop.calls > 1
+    assert metrics["iteration"] > 1
+    assert metrics["interval_seconds"] == 0.01
+    assert metrics["stop_reason"] == "test_stop"

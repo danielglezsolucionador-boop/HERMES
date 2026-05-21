@@ -10,6 +10,7 @@ from app.core.logging import logger
 from app.db.engine import engine
 from app.db.init import initialize_database
 from app.integrations.claude_client import validate_startup
+from app.runner.runtime_loop import runtime_loop
 from app.telegram.polling import start_polling, stop_polling
 
 
@@ -24,6 +25,19 @@ def _log_background_task_error(task: asyncio.Task) -> None:
         return
     if exc is not None:
         logger.error("telegram polling background task failed: %s", exc)
+
+
+def _log_runtime_loop_task_error(task: asyncio.Task) -> None:
+    if task.cancelled():
+        logger.info("runtime loop background task cancelled")
+        return
+    try:
+        exc = task.exception()
+    except asyncio.CancelledError:
+        logger.info("runtime loop background task cancelled")
+        return
+    if exc is not None:
+        logger.error("runtime loop background task failed: %s", exc)
 
 
 @asynccontextmanager
@@ -41,6 +55,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     else:
         await initialize_database()
     validate_startup()
+    runtime_loop_task = asyncio.create_task(runtime_loop.run())
+    runtime_loop_task.add_done_callback(_log_runtime_loop_task_error)
+    app.state.runtime_loop_task = runtime_loop_task
+    logger.info("  runtime : loop scheduled")
     polling_task = asyncio.create_task(start_polling())
     polling_task.add_done_callback(_log_background_task_error)
     app.state.telegram_polling_task = polling_task
@@ -48,6 +66,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     try:
         yield
     finally:
+        runtime_loop.request_stop("lifespan_shutdown")
+        if not runtime_loop_task.done():
+            runtime_loop_task.cancel()
+            try:
+                await runtime_loop_task
+            except asyncio.CancelledError:
+                logger.info("runtime loop startup task cancelled during shutdown")
         if not polling_task.done():
             polling_task.cancel()
             try:

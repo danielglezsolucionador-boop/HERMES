@@ -32,6 +32,15 @@ class RuntimeStatus:
         self.telegram_messages_failed = 0
         self.telegram_last_message_at: datetime | None = None
         self.telegram_last_error: str | None = None
+        self.runtime_loop_started_at: datetime | None = None
+        self.runtime_loop_last_heartbeat_at: datetime | None = None
+        self.runtime_loop_last_cycle_duration_ms = 0
+        self.runtime_loop_iteration = 0
+        self.runtime_loop_alive = False
+        self.runtime_loop_state = "stopped"
+        self.runtime_loop_stop_requested = False
+        self.runtime_loop_stop_reason: str | None = None
+        self.runtime_loop_interval_seconds = 0.0
 
     def mark_started(self) -> None:
         self.runner_started_at = datetime.now(timezone.utc)
@@ -105,6 +114,44 @@ class RuntimeStatus:
         self.telegram_messages_failed += 1
         self.telegram_last_error = error or "unknown_telegram_error"
 
+    def mark_runtime_loop_started(self, interval_seconds: float) -> None:
+        self.runtime_loop_started_at = datetime.now(timezone.utc)
+        self.runtime_loop_last_heartbeat_at = None
+        self.runtime_loop_last_cycle_duration_ms = 0
+        self.runtime_loop_iteration = 0
+        self.runtime_loop_alive = True
+        self.runtime_loop_state = "active"
+        self.runtime_loop_stop_requested = False
+        self.runtime_loop_stop_reason = None
+        self.runtime_loop_interval_seconds = interval_seconds
+
+    def mark_runtime_loop_heartbeat(
+        self,
+        state: str = "active",
+        cycle_duration_ms: int = 0,
+    ) -> None:
+        self.runtime_loop_last_heartbeat_at = datetime.now(timezone.utc)
+        self.runtime_loop_last_cycle_duration_ms = max(0, int(cycle_duration_ms or 0))
+        self.runtime_loop_iteration += 1
+        self.runtime_loop_alive = True
+        self.runtime_loop_state = state
+        self.runtime_loop_stop_requested = False
+
+    def mark_runtime_loop_paused(self) -> None:
+        self.runtime_loop_last_heartbeat_at = datetime.now(timezone.utc)
+        self.runtime_loop_alive = True
+        self.runtime_loop_state = "paused"
+
+    def request_runtime_loop_stop(self, reason: str = "stop_requested") -> None:
+        self.runtime_loop_stop_requested = True
+        self.runtime_loop_stop_reason = reason
+
+    def mark_runtime_loop_stopped(self, reason: str = "stopped") -> None:
+        self.runtime_loop_alive = False
+        self.runtime_loop_state = "stopped"
+        self.runtime_loop_stop_requested = True
+        self.runtime_loop_stop_reason = reason
+
     def ai_metrics(self) -> dict:
         avg_duration = 0
         avg_provider = 0
@@ -156,6 +203,38 @@ class RuntimeStatus:
             return "degraded"
         return "healthy"
 
+    def runtime_loop_health_status(self) -> str:
+        if not self.runtime_loop_alive:
+            return "stopped"
+        if self.runtime_loop_state == "paused":
+            return "paused"
+        if self.runtime_loop_last_heartbeat_at is None:
+            return "starting"
+        max_age = max(30.0, self.runtime_loop_interval_seconds * 3)
+        age = (
+            datetime.now(timezone.utc) - self.runtime_loop_last_heartbeat_at
+        ).total_seconds()
+        if age > max_age:
+            return "degraded"
+        return "healthy"
+
+    def runtime_loop_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "alive": self.runtime_loop_alive,
+            "status": self.runtime_loop_health_status(),
+            "state": self.runtime_loop_state,
+            "started_at": fmt(self.runtime_loop_started_at),
+            "last_heartbeat_at": fmt(self.runtime_loop_last_heartbeat_at),
+            "last_cycle_duration_ms": self.runtime_loop_last_cycle_duration_ms,
+            "iteration": self.runtime_loop_iteration,
+            "interval_seconds": self.runtime_loop_interval_seconds,
+            "stop_requested": self.runtime_loop_stop_requested,
+            "stop_reason": self.runtime_loop_stop_reason,
+        }
+
     def to_dict(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -172,6 +251,7 @@ class RuntimeStatus:
             "total_processed": self.total_processed,
             "total_success": self.total_success,
             "total_failed": self.total_failed,
+            "runtime_loop": self.runtime_loop_metrics(),
         }
         data.update(self.ai_metrics())
         data.update(self.telegram_metrics())

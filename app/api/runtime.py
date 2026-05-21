@@ -30,6 +30,7 @@ async def runtime_status(session: AsyncSession = Depends(get_session)):
         pending = counts.get("pending", 0)
         ai_metrics = runner_runtime_status.ai_metrics()
         telegram_metrics = runner_runtime_status.telegram_metrics()
+        runtime_loop_metrics = runner_runtime_status.runtime_loop_metrics()
         operational_health = await build_operational_health(session, counts)
 
         return {
@@ -45,6 +46,7 @@ async def runtime_status(session: AsyncSession = Depends(get_session)):
                 "running_legacy": running_legacy,
             },
             "runner": runner_runtime_status.to_dict(),
+            "runtime_loop": runtime_loop_metrics,
             "ai": ai_metrics,
             "telegram": telegram_metrics,
             "operational_health": operational_health,
