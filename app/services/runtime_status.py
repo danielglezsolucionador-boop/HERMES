@@ -861,6 +861,52 @@ class RuntimeStatus:
         self.workflow_chaining_reasons: list[str] = []
         self.workflow_chaining_last_error: str | None = None
         self.workflow_chaining_metadata: dict = {}
+        self.last_continuation_safety_at: datetime | None = None
+        self.continuation_safety_iteration = 0
+        self.continuation_safety_status = "stopped"
+        self.continuations_safe = 0
+        self.continuations_warning = 0
+        self.continuations_blocked = 0
+        self.continuations_critical = 0
+        self.continuation_safety_errors = 0
+        self.last_safety_id: str | None = None
+        self.safety_execution_id: str | None = None
+        self.safety_task_id: str | None = None
+        self.safety_type: str | None = None
+        self.safety_current_workflow: str | None = None
+        self.safety_next_workflow: str | None = None
+        self.safety_continuation_status: str | None = None
+        self.safety_governance_status: str | None = None
+        self.safety_audit_status: str | None = None
+        self.safety_security_status: str | None = None
+        self.safety_risk_level: str | None = None
+        self.safety_governance_valid = False
+        self.safety_audit_valid = False
+        self.safety_security_clear = False
+        self.safety_runtime_stable = False
+        self.safety_dependencies_complete = False
+        self.safety_execution_consistent = False
+        self.safety_workflow_integrity = False
+        self.safety_continuation_allowed = False
+        self.safety_human_review_required = False
+        self.safety_sentinel_escalation_required = False
+        self.safety_centinela_escalation_required = False
+        self.safety_autonomy_limited = False
+        self.safety_context_preserved = False
+        self.safety_traceability_preserved = False
+        self.safety_detected_risks: list[str] = []
+        self.safety_warnings: list[str] = []
+        self.safety_security_events: list[dict] = []
+        self.safety_continuation_logs: list[dict] = []
+        self.safety_execution_context: dict = {}
+        self.safety_governance_history: list[dict] = []
+        self.safety_audit_history: list[dict] = []
+        self.safety_workflow_history: list[dict] = []
+        self.safety_lifecycle: list[dict] = []
+        self.continuation_safety_duration_ms = 0
+        self.continuation_safety_reasons: list[str] = []
+        self.continuation_safety_last_error: str | None = None
+        self.continuation_safety_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -3381,6 +3427,109 @@ class RuntimeStatus:
         else:
             self.workflow_chaining_errors += 1
 
+    def mark_continuation_safety_result(self, result: dict) -> None:
+        self.last_continuation_safety_at = datetime.now(timezone.utc)
+        self.continuation_safety_iteration += 1
+        self.continuation_safety_status = result.get("status") or "unknown"
+        self.last_safety_id = result.get("safety_id")
+        self.safety_execution_id = result.get("execution_id")
+        self.safety_task_id = result.get("task_id")
+        self.safety_type = result.get("safety_type")
+        self.safety_current_workflow = result.get("current_workflow")
+        self.safety_next_workflow = result.get("next_workflow")
+        self.safety_continuation_status = result.get("continuation_status")
+        self.safety_governance_status = result.get("governance_status")
+        self.safety_audit_status = result.get("audit_status")
+        self.safety_security_status = result.get("security_status")
+        self.safety_risk_level = result.get("risk_level")
+        self.safety_governance_valid = bool(result.get("governance_valid"))
+        self.safety_audit_valid = bool(result.get("audit_valid"))
+        self.safety_security_clear = bool(result.get("security_clear"))
+        self.safety_runtime_stable = bool(result.get("runtime_stable"))
+        self.safety_dependencies_complete = bool(
+            result.get("dependencies_complete")
+        )
+        self.safety_execution_consistent = bool(
+            result.get("execution_consistent")
+        )
+        self.safety_workflow_integrity = bool(result.get("workflow_integrity"))
+        self.safety_continuation_allowed = bool(
+            result.get("continuation_allowed")
+        )
+        self.safety_human_review_required = bool(
+            result.get("human_review_required")
+        )
+        self.safety_sentinel_escalation_required = bool(
+            result.get("sentinel_escalation_required")
+        )
+        self.safety_centinela_escalation_required = bool(
+            result.get("centinela_escalation_required")
+        )
+        self.safety_autonomy_limited = bool(result.get("autonomy_limited"))
+        self.safety_context_preserved = bool(result.get("context_preserved"))
+        self.safety_traceability_preserved = bool(
+            result.get("traceability_preserved")
+        )
+        self.safety_detected_risks = [
+            str(item) for item in (result.get("detected_risks") or [])
+        ]
+        self.safety_warnings = [
+            str(item) for item in (result.get("warnings") or [])
+        ]
+        self.safety_security_events = [
+            dict(entry)
+            for entry in (result.get("security_events") or [])
+            if isinstance(entry, dict)
+        ]
+        self.safety_continuation_logs = [
+            dict(entry)
+            for entry in (result.get("continuation_logs") or [])
+            if isinstance(entry, dict)
+        ]
+        self.safety_execution_context = dict(
+            result.get("execution_context") or {}
+        )
+        self.safety_governance_history = [
+            dict(entry)
+            for entry in (result.get("governance_history") or [])
+            if isinstance(entry, dict)
+        ]
+        self.safety_audit_history = [
+            dict(entry)
+            for entry in (result.get("audit_history") or [])
+            if isinstance(entry, dict)
+        ]
+        self.safety_workflow_history = [
+            dict(entry)
+            for entry in (result.get("workflow_history") or [])
+            if isinstance(entry, dict)
+        ]
+        self.safety_lifecycle = [
+            dict(entry)
+            for entry in (result.get("safety_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.continuation_safety_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.continuation_safety_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.continuation_safety_last_error = result.get("error")
+        self.continuation_safety_metadata = dict(result.get("metadata") or {})
+
+        if self.continuation_safety_status == "safe_continuation":
+            self.continuations_safe += 1
+        elif self.continuation_safety_status == "warning_continuation":
+            self.continuations_warning += 1
+        elif self.continuation_safety_status == "blocked_continuation":
+            self.continuations_blocked += 1
+        elif self.continuation_safety_status == "critical_continuation":
+            self.continuations_critical += 1
+        else:
+            self.continuation_safety_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -5035,6 +5184,79 @@ class RuntimeStatus:
             "metadata": dict(self.workflow_chaining_metadata),
         }
 
+    def continuation_safety_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_continuation_safety_at": fmt(
+                self.last_continuation_safety_at
+            ),
+            "continuation_safety_iteration": (
+                self.continuation_safety_iteration
+            ),
+            "continuation_safety_status": self.continuation_safety_status,
+            "continuations_safe": self.continuations_safe,
+            "continuations_warning": self.continuations_warning,
+            "continuations_blocked": self.continuations_blocked,
+            "continuations_critical": self.continuations_critical,
+            "continuation_safety_errors": self.continuation_safety_errors,
+            "safety_id": self.last_safety_id,
+            "execution_id": self.safety_execution_id,
+            "task_id": self.safety_task_id,
+            "safety_type": self.safety_type,
+            "current_workflow": self.safety_current_workflow,
+            "next_workflow": self.safety_next_workflow,
+            "continuation_status": self.safety_continuation_status,
+            "governance_status": self.safety_governance_status,
+            "audit_status": self.safety_audit_status,
+            "security_status": self.safety_security_status,
+            "risk_level": self.safety_risk_level,
+            "governance_valid": self.safety_governance_valid,
+            "audit_valid": self.safety_audit_valid,
+            "security_clear": self.safety_security_clear,
+            "runtime_stable": self.safety_runtime_stable,
+            "dependencies_complete": self.safety_dependencies_complete,
+            "execution_consistent": self.safety_execution_consistent,
+            "workflow_integrity": self.safety_workflow_integrity,
+            "continuation_allowed": self.safety_continuation_allowed,
+            "human_review_required": self.safety_human_review_required,
+            "sentinel_escalation_required": (
+                self.safety_sentinel_escalation_required
+            ),
+            "centinela_escalation_required": (
+                self.safety_centinela_escalation_required
+            ),
+            "autonomy_limited": self.safety_autonomy_limited,
+            "context_preserved": self.safety_context_preserved,
+            "traceability_preserved": self.safety_traceability_preserved,
+            "detected_risks": list(self.safety_detected_risks),
+            "warnings": list(self.safety_warnings),
+            "security_events": [
+                dict(entry) for entry in self.safety_security_events
+            ],
+            "continuation_logs": [
+                dict(entry) for entry in self.safety_continuation_logs
+            ],
+            "execution_context": dict(self.safety_execution_context),
+            "governance_history": [
+                dict(entry) for entry in self.safety_governance_history
+            ],
+            "audit_history": [
+                dict(entry) for entry in self.safety_audit_history
+            ],
+            "workflow_history": [
+                dict(entry) for entry in self.safety_workflow_history
+            ],
+            "safety_lifecycle": [
+                dict(entry) for entry in self.safety_lifecycle
+            ],
+            "duration_ms": self.continuation_safety_duration_ms,
+            "reasons": list(self.continuation_safety_reasons),
+            "last_error": self.continuation_safety_last_error,
+            "metadata": dict(self.continuation_safety_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -5240,6 +5462,7 @@ class RuntimeStatus:
             "checkpoint_recovery": self.checkpoint_recovery_metrics(),
             "execution_resume": self.execution_resume_metrics(),
             "workflow_chaining": self.workflow_chaining_metrics(),
+            "continuation_safety": self.continuation_safety_metrics(),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
             "response_safety": self.response_safety_metrics(),
