@@ -433,6 +433,30 @@ class RuntimeStatus:
         self.provider_output_tokens = 0
         self.provider_total_tokens = 0
         self.provider_bridge_reasons: list[str] = []
+        self.last_prompt_execution_at: datetime | None = None
+        self.prompt_execution_iteration = 0
+        self.prompt_execution_status = "stopped"
+        self.prompt_execution_prompt_status: str | None = None
+        self.prompt_executions_completed = 0
+        self.prompt_executions_rejected = 0
+        self.prompt_executions_failed = 0
+        self.last_prompt_execution_id: str | None = None
+        self.prompt_execution_type: str | None = None
+        self.prompt_execution_objective: str | None = None
+        self.prompt_execution_provider: str | None = None
+        self.prompt_execution_provider_session_id: str | None = None
+        self.prompt_execution_request_id: str | None = None
+        self.prompt_execution_execution_id: str | None = None
+        self.prompt_execution_task_id: str | None = None
+        self.prompt_execution_prompt_size_bytes = 0
+        self.prompt_execution_output_available = False
+        self.prompt_execution_output_size_bytes = 0
+        self.prompt_execution_duration_ms = 0
+        self.prompt_execution_provider_duration_ms = 0
+        self.prompt_execution_usage: dict = {}
+        self.prompt_execution_reasons: list[str] = []
+        self.prompt_execution_last_error: str | None = None
+        self.prompt_execution_lifecycle: list[dict] = []
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -2018,6 +2042,57 @@ class RuntimeStatus:
         self.provider_failure_status = error or "unknown_provider_bridge_error"
         self.provider_bridge_last_error = error or "unknown_provider_bridge_error"
 
+    def mark_prompt_execution_result(self, result: dict) -> None:
+        self.last_prompt_execution_at = datetime.now(timezone.utc)
+        self.prompt_execution_iteration += 1
+        self.prompt_execution_status = result.get("status") or "unknown"
+        self.prompt_execution_prompt_status = result.get("prompt_status")
+        self.last_prompt_execution_id = result.get("prompt_execution_id")
+        self.prompt_execution_type = result.get("prompt_type")
+        self.prompt_execution_objective = result.get("objective")
+        self.prompt_execution_provider = result.get("provider_name")
+        self.prompt_execution_provider_session_id = result.get(
+            "provider_session_id"
+        )
+        self.prompt_execution_request_id = result.get("request_id")
+        self.prompt_execution_execution_id = result.get("execution_id")
+        self.prompt_execution_task_id = result.get("task_id")
+        self.prompt_execution_prompt_size_bytes = max(
+            0,
+            int(result.get("prompt_size_bytes") or 0),
+        )
+        self.prompt_execution_output_available = bool(
+            result.get("output_available")
+        )
+        self.prompt_execution_output_size_bytes = max(
+            0,
+            int(result.get("output_size_bytes") or 0),
+        )
+        self.prompt_execution_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.prompt_execution_provider_duration_ms = max(
+            0,
+            int(result.get("provider_duration_ms") or 0),
+        )
+        self.prompt_execution_usage = dict(result.get("usage") or {})
+        self.prompt_execution_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.prompt_execution_last_error = result.get("error")
+        self.prompt_execution_lifecycle = [
+            dict(entry)
+            for entry in (result.get("lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        if self.prompt_execution_status == "completed":
+            self.prompt_executions_completed += 1
+        elif self.prompt_execution_status == "rejected":
+            self.prompt_executions_rejected += 1
+        else:
+            self.prompt_executions_failed += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -3024,6 +3099,37 @@ class RuntimeStatus:
             "reasons": list(self.provider_bridge_reasons),
         }
 
+    def prompt_execution_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_prompt_execution_at": fmt(self.last_prompt_execution_at),
+            "prompt_execution_iteration": self.prompt_execution_iteration,
+            "prompt_execution_status": self.prompt_execution_status,
+            "prompt_status": self.prompt_execution_prompt_status,
+            "prompt_executions_completed": self.prompt_executions_completed,
+            "prompt_executions_rejected": self.prompt_executions_rejected,
+            "prompt_executions_failed": self.prompt_executions_failed,
+            "prompt_execution_id": self.last_prompt_execution_id,
+            "prompt_type": self.prompt_execution_type,
+            "objective": self.prompt_execution_objective,
+            "provider_name": self.prompt_execution_provider,
+            "provider_session_id": self.prompt_execution_provider_session_id,
+            "request_id": self.prompt_execution_request_id,
+            "execution_id": self.prompt_execution_execution_id,
+            "task_id": self.prompt_execution_task_id,
+            "prompt_size_bytes": self.prompt_execution_prompt_size_bytes,
+            "output_available": self.prompt_execution_output_available,
+            "output_size_bytes": self.prompt_execution_output_size_bytes,
+            "duration_ms": self.prompt_execution_duration_ms,
+            "provider_duration_ms": self.prompt_execution_provider_duration_ms,
+            "usage": dict(self.prompt_execution_usage),
+            "reasons": list(self.prompt_execution_reasons),
+            "last_error": self.prompt_execution_last_error,
+            "lifecycle": [dict(entry) for entry in self.prompt_execution_lifecycle],
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -3214,6 +3320,7 @@ class RuntimeStatus:
             "orchestration": self.orchestration_metrics(),
             "orchestration_safety": self.orchestration_safety_metrics(),
             "provider_bridge": self.provider_bridge_metrics(),
+            "prompt_execution": self.prompt_execution_metrics(),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
             "response_safety": self.response_safety_metrics(),
