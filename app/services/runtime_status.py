@@ -2038,6 +2038,43 @@ class RuntimeStatus:
         self.failure_recovery_reasons: list[str] = []
         self.failure_recovery_last_error: str | None = None
         self.failure_recovery_metadata: dict = {}
+        self.last_restart_persistence_at: datetime | None = None
+        self.restart_persistence_iteration = 0
+        self.restart_persistence_status = "stopped"
+        self.restart_persistences_restored = 0
+        self.restart_persistences_blocked = 0
+        self.restart_persistence_errors = 0
+        self.restart_persistence_id: str | None = None
+        self.restart_persistence_workflow_id: str | None = None
+        self.restart_persistence_detected = False
+        self.restart_persistence_restart_status: str | None = None
+        self.restart_persistence_continuation_status: str | None = None
+        self.restart_persistence_governance_status: str | None = None
+        self.restart_persistence_recovery_status: str | None = None
+        self.restart_persistence_execution_status: str | None = None
+        self.restart_persistence_execution_state_valid = False
+        self.restart_persistence_workflow_continuity_valid = False
+        self.restart_persistence_runtime_context_valid = False
+        self.restart_persistence_restart_status_valid = False
+        self.restart_persistence_governance_alignment_valid = False
+        self.restart_persistence_recovery_status_valid = False
+        self.restart_persistence_execution_consistency_valid = False
+        self.restart_persistence_operational_stability_valid = False
+        self.restart_persistence_valid = False
+        self.restart_persistence_continuation_allowed = False
+        self.restart_persistence_execution_state_restored = False
+        self.restart_persistence_traceability_preserved = False
+        self.restart_persistence_history_preserved = False
+        self.restart_persistence_governance_state_preserved = False
+        self.restart_persistence_restart_conditions: list[str] = []
+        self.restart_persistence_blocking_conditions: list[str] = []
+        self.restart_persistence_report: dict = {}
+        self.restart_persistence_visibility_payload: dict = {}
+        self.restart_persistence_lifecycle: list[dict] = []
+        self.restart_persistence_duration_ms = 0
+        self.restart_persistence_reasons: list[str] = []
+        self.restart_persistence_last_error: str | None = None
+        self.restart_persistence_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -7536,6 +7573,102 @@ class RuntimeStatus:
         else:
             self.failure_recovery_errors += 1
 
+    def mark_restart_persistence_result(self, result: dict) -> None:
+        self.last_restart_persistence_at = datetime.now(timezone.utc)
+        self.restart_persistence_iteration += 1
+        self.restart_persistence_status = result.get("status") or "unknown"
+        self.restart_persistence_id = result.get("restart_id")
+        self.restart_persistence_workflow_id = result.get("workflow_id")
+        self.restart_persistence_detected = bool(
+            result.get("restart_detected")
+        )
+        self.restart_persistence_restart_status = result.get("restart_status")
+        self.restart_persistence_continuation_status = result.get(
+            "continuation_status"
+        )
+        self.restart_persistence_governance_status = result.get(
+            "governance_status"
+        )
+        self.restart_persistence_recovery_status = result.get(
+            "recovery_status"
+        )
+        self.restart_persistence_execution_status = result.get(
+            "execution_status"
+        )
+        self.restart_persistence_execution_state_valid = bool(
+            result.get("execution_state_valid")
+        )
+        self.restart_persistence_workflow_continuity_valid = bool(
+            result.get("workflow_continuity_valid")
+        )
+        self.restart_persistence_runtime_context_valid = bool(
+            result.get("runtime_context_valid")
+        )
+        self.restart_persistence_restart_status_valid = bool(
+            result.get("restart_status_valid")
+        )
+        self.restart_persistence_governance_alignment_valid = bool(
+            result.get("governance_alignment_valid")
+        )
+        self.restart_persistence_recovery_status_valid = bool(
+            result.get("recovery_status_valid")
+        )
+        self.restart_persistence_execution_consistency_valid = bool(
+            result.get("execution_consistency_valid")
+        )
+        self.restart_persistence_operational_stability_valid = bool(
+            result.get("operational_stability_valid")
+        )
+        self.restart_persistence_valid = bool(result.get("persistence_valid"))
+        self.restart_persistence_continuation_allowed = bool(
+            result.get("continuation_allowed")
+        )
+        self.restart_persistence_execution_state_restored = bool(
+            result.get("execution_state_restored")
+        )
+        self.restart_persistence_traceability_preserved = bool(
+            result.get("workflow_traceability_preserved")
+        )
+        self.restart_persistence_history_preserved = bool(
+            result.get("workflow_history_preserved")
+        )
+        self.restart_persistence_governance_state_preserved = bool(
+            result.get("governance_state_preserved")
+        )
+        self.restart_persistence_restart_conditions = [
+            str(item) for item in (result.get("restart_conditions") or [])
+        ]
+        self.restart_persistence_blocking_conditions = [
+            str(item) for item in (result.get("blocking_conditions") or [])
+        ]
+        self.restart_persistence_report = dict(
+            result.get("persistence_report") or {}
+        )
+        self.restart_persistence_visibility_payload = dict(
+            result.get("human_visibility_payload") or {}
+        )
+        self.restart_persistence_lifecycle = [
+            dict(entry)
+            for entry in (result.get("persistence_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.restart_persistence_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.restart_persistence_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.restart_persistence_last_error = result.get("error")
+        self.restart_persistence_metadata = dict(result.get("metadata") or {})
+
+        if self.restart_persistence_status == "restored":
+            self.restart_persistences_restored += 1
+        elif self.restart_persistence_status == "blocked":
+            self.restart_persistences_blocked += 1
+        else:
+            self.restart_persistence_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -11637,6 +11770,94 @@ class RuntimeStatus:
             "metadata": dict(self.failure_recovery_metadata),
         }
 
+    def restart_persistence_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_restart_persistence_at": fmt(
+                self.last_restart_persistence_at
+            ),
+            "restart_persistence_iteration": (
+                self.restart_persistence_iteration
+            ),
+            "restart_persistence_status": self.restart_persistence_status,
+            "restart_persistences_restored": (
+                self.restart_persistences_restored
+            ),
+            "restart_persistences_blocked": (
+                self.restart_persistences_blocked
+            ),
+            "restart_persistence_errors": self.restart_persistence_errors,
+            "restart_id": self.restart_persistence_id,
+            "workflow_id": self.restart_persistence_workflow_id,
+            "restart_detected": self.restart_persistence_detected,
+            "restart_status": self.restart_persistence_restart_status,
+            "continuation_status": (
+                self.restart_persistence_continuation_status
+            ),
+            "governance_status": self.restart_persistence_governance_status,
+            "recovery_status": self.restart_persistence_recovery_status,
+            "execution_status": self.restart_persistence_execution_status,
+            "execution_state_valid": (
+                self.restart_persistence_execution_state_valid
+            ),
+            "workflow_continuity_valid": (
+                self.restart_persistence_workflow_continuity_valid
+            ),
+            "runtime_context_valid": (
+                self.restart_persistence_runtime_context_valid
+            ),
+            "restart_status_valid": (
+                self.restart_persistence_restart_status_valid
+            ),
+            "governance_alignment_valid": (
+                self.restart_persistence_governance_alignment_valid
+            ),
+            "recovery_status_valid": (
+                self.restart_persistence_recovery_status_valid
+            ),
+            "execution_consistency_valid": (
+                self.restart_persistence_execution_consistency_valid
+            ),
+            "operational_stability_valid": (
+                self.restart_persistence_operational_stability_valid
+            ),
+            "persistence_valid": self.restart_persistence_valid,
+            "continuation_allowed": (
+                self.restart_persistence_continuation_allowed
+            ),
+            "execution_state_restored": (
+                self.restart_persistence_execution_state_restored
+            ),
+            "workflow_traceability_preserved": (
+                self.restart_persistence_traceability_preserved
+            ),
+            "workflow_history_preserved": (
+                self.restart_persistence_history_preserved
+            ),
+            "governance_state_preserved": (
+                self.restart_persistence_governance_state_preserved
+            ),
+            "restart_conditions": list(
+                self.restart_persistence_restart_conditions
+            ),
+            "blocking_conditions": list(
+                self.restart_persistence_blocking_conditions
+            ),
+            "persistence_report": dict(self.restart_persistence_report),
+            "human_visibility_payload": dict(
+                self.restart_persistence_visibility_payload
+            ),
+            "persistence_lifecycle": [
+                dict(entry) for entry in self.restart_persistence_lifecycle
+            ],
+            "duration_ms": self.restart_persistence_duration_ms,
+            "reasons": list(self.restart_persistence_reasons),
+            "last_error": self.restart_persistence_last_error,
+            "metadata": dict(self.restart_persistence_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -11904,6 +12125,7 @@ class RuntimeStatus:
             "workflow_validation": self.workflow_validation_metrics(),
             "stress_tests": self.stress_tests_metrics(),
             "failure_recovery": self.failure_recovery_metrics(),
+            "restart_persistence": self.restart_persistence_metrics(),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
             "response_safety": self.response_safety_metrics(),
