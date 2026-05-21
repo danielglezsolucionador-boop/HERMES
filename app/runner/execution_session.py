@@ -68,6 +68,14 @@ SESSION_FINAL_STATES = {SESSION_STATE_FAILED, SESSION_STATE_COMPLETED}
 class ExecutionSessionLogEntry:
     event: str
     message: str
+    log_id: str = field(default_factory=lambda: str(uuid4()))
+    execution_id: str | None = None
+    phase_id: str | None = None
+    event_type: str = "runtime"
+    runtime_state: str | None = None
+    actor: str = "hermes_runtime"
+    severity: str = "info"
+    details: dict[str, Any] = field(default_factory=dict)
     created_at: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
@@ -75,9 +83,17 @@ class ExecutionSessionLogEntry:
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "log_id": self.log_id,
+            "execution_id": self.execution_id,
+            "phase_id": self.phase_id,
             "event": self.event,
+            "event_type": self.event_type,
+            "runtime_state": self.runtime_state,
+            "actor": self.actor,
+            "severity": self.severity,
             "message": self.message,
             "created_at": self.created_at,
+            "details": dict(self.details),
             "metadata": dict(self.metadata),
         }
 
@@ -178,6 +194,8 @@ class ExecutionSessionResult:
     human_approval_status: str | None = None
     context_snapshot: dict[str, Any] | None = None
     context_recovery_available: bool = False
+    log_count: int = 0
+    last_log: dict[str, Any] | None = None
     checked_at: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
@@ -220,6 +238,8 @@ class ExecutionSessionResult:
                 dict(self.context_snapshot) if self.context_snapshot else None
             ),
             "context_recovery_available": self.context_recovery_available,
+            "log_count": self.log_count,
+            "last_log": dict(self.last_log) if self.last_log else None,
             "checked_at": self.checked_at,
             "duration_ms": self.duration_ms,
             "session": self.session.to_dict() if self.session else None,
@@ -333,8 +353,9 @@ class ExecutionSessionManager:
 
             lifecycle_history = self.lifecycle_controller.bootstrap_history()
             now = datetime.now(timezone.utc).isoformat()
+            session_id = str(uuid4())
             session = ExecutionSession(
-                session_id=str(uuid4()),
+                session_id=session_id,
                 task_id=str(task_data["task_id"]),
                 phase_id=phase,
                 execution_status=SESSION_STATE_RUNNING,
@@ -353,26 +374,47 @@ class ExecutionSessionManager:
                 logs=(
                     ExecutionSessionLogEntry(
                         event="lifecycle_transition",
+                        execution_id=session_id,
+                        phase_id=phase,
+                        event_type="lifecycle",
+                        runtime_state=SESSION_STATE_RUNNING,
                         message="Execution lifecycle initialized.",
+                        details={"stage": LIFECYCLE_STAGE_ACTIVE_EXECUTION},
                         metadata=lifecycle_history[-1],
                     ),
                     ExecutionSessionLogEntry(
                         event="state_transition",
+                        execution_id=session_id,
+                        phase_id=phase,
+                        event_type="runtime",
+                        runtime_state=SESSION_STATE_CREATED,
                         message="Execution state created.",
+                        details={"state": SESSION_STATE_CREATED},
                         metadata=created_transition.to_dict(),
                     ),
                     ExecutionSessionLogEntry(
                         event="state_transition",
+                        execution_id=session_id,
+                        phase_id=phase,
+                        event_type="runtime",
+                        runtime_state=SESSION_STATE_RUNNING,
                         message="Execution state running.",
+                        details={"state": SESSION_STATE_RUNNING},
                         metadata=running_transition.to_dict(),
                     ),
                     ExecutionSessionLogEntry(
                         event="session_started",
+                        execution_id=session_id,
+                        phase_id=phase,
+                        event_type="execution",
+                        runtime_state=SESSION_STATE_RUNNING,
                         message="Execution session started.",
+                        details={"phase_id": phase},
                         metadata={"phase_id": phase},
                     ),
                 ),
             )
+            session = replace(session, logs=self._trim_logs(list(session.logs)))
             memory = self.context_memory.preserve(
                 session.to_dict(),
                 checkpoint="session_started",
@@ -535,6 +577,12 @@ class ExecutionSessionManager:
                 session,
                 "session_saved",
                 log_message or "Execution session progress saved.",
+                event_type="action",
+                details={
+                    "checkpoint": checkpoint,
+                    "file_modified": file_modified,
+                    "last_action": last_action,
+                },
                 metadata=transition.to_dict(),
             ),
         )
@@ -652,6 +700,8 @@ class ExecutionSessionManager:
                 session,
                 "lifecycle_transition",
                 "Execution lifecycle advanced.",
+                event_type="lifecycle",
+                details={"stage": lifecycle.next_stage},
                 metadata=lifecycle.to_dict(),
             ),
         )
@@ -693,6 +743,47 @@ class ExecutionSessionManager:
             session=updated,
             lifecycle=lifecycle,
             context_memory=memory_result,
+            started=started,
+        )
+
+    def record_log(
+        self,
+        session_id: str,
+        event_type: str,
+        details: dict[str, Any] | None = None,
+        message: str | None = None,
+        severity: str = "info",
+        actor: str = "hermes_runtime",
+        event: str | None = None,
+    ) -> ExecutionSessionResult:
+        started = time.perf_counter()
+        session = self._sessions.get(session_id)
+        if session is None:
+            return self._rejected(
+                "missing_execution_session",
+                "blocked",
+                started,
+            )
+        event_value = event or f"{event_type}_log"
+        updated = replace(
+            session,
+            updated_at=datetime.now(timezone.utc).isoformat(),
+            logs=self._append_log(
+                session,
+                event_value,
+                message or f"Execution {event_type} log recorded.",
+                event_type=event_type,
+                severity=severity,
+                actor=actor,
+                details=details,
+            ),
+        )
+        self._sessions[session_id] = updated
+        return self._result(
+            status="log_recorded",
+            success=True,
+            session_state=updated.execution_status,
+            session=updated,
             started=started,
         )
 
@@ -759,6 +850,10 @@ class ExecutionSessionManager:
                 session,
                 "session_recovered",
                 "Execution session recovered.",
+                event_type="execution",
+                details={"checkpoint": context_recovery.snapshot.last_checkpoint}
+                if context_recovery.snapshot
+                else {},
                 metadata={
                     "transition": transition.to_dict(),
                     "context": context_recovery.to_dict(),
@@ -830,6 +925,8 @@ class ExecutionSessionManager:
                 session,
                 "session_closed",
                 "Execution session closed.",
+                event_type="execution",
+                details={"completed": completed},
                 metadata=transition.to_dict(),
             ),
         )
@@ -959,6 +1056,10 @@ class ExecutionSessionManager:
         session: ExecutionSession,
         event: str,
         message: str,
+        event_type: str = "runtime",
+        severity: str = "info",
+        actor: str = "hermes_runtime",
+        details: dict[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> tuple[ExecutionSessionLogEntry, ...]:
         logs = list(session.logs)
@@ -966,10 +1067,53 @@ class ExecutionSessionManager:
             ExecutionSessionLogEntry(
                 event=event,
                 message=message,
+                execution_id=session.session_id,
+                phase_id=session.phase_id,
+                event_type=event_type,
+                runtime_state=session.execution_status,
+                actor=actor,
+                severity=severity,
+                details=dict(details or {}),
                 metadata=dict(metadata or {}),
             )
         )
-        return tuple(logs[-self.max_log_entries :])
+        return self._trim_logs(logs)
+
+    def _trim_logs(
+        self,
+        logs: list[ExecutionSessionLogEntry],
+    ) -> tuple[ExecutionSessionLogEntry, ...]:
+        if len(logs) <= self.max_log_entries:
+            return tuple(logs)
+        critical_types = {"error", "audit", "approval", "security"}
+        critical_severity = {"error", "critical"}
+        critical = [
+            entry
+            for entry in logs
+            if entry.event_type in critical_types
+            or entry.severity in critical_severity
+        ]
+        recent = logs[-self.max_log_entries :]
+        merged: list[ExecutionSessionLogEntry] = []
+        seen: set[str] = set()
+        for entry in [*critical, *recent]:
+            if entry.log_id in seen:
+                continue
+            seen.add(entry.log_id)
+            merged.append(entry)
+        if len(merged) <= self.max_log_entries:
+            return tuple(merged)
+        preserved_critical = [
+            entry for entry in merged if entry.log_id in {item.log_id for item in critical}
+        ]
+        if len(preserved_critical) >= self.max_log_entries:
+            return tuple(preserved_critical[-self.max_log_entries :])
+        needed_recent = self.max_log_entries - len(preserved_critical)
+        preserved_ids = {entry.log_id for entry in preserved_critical}
+        recent_fill = [
+            entry for entry in recent if entry.log_id not in preserved_ids
+        ][-needed_recent:]
+        return tuple([*preserved_critical, *recent_fill])
 
     def _rejected(
         self,
@@ -1003,6 +1147,7 @@ class ExecutionSessionManager:
         started: float | None = None,
     ) -> ExecutionSessionResult:
         active_sessions = 1 if self.active_session() else 0
+        logs = list(session.logs) if session else []
         return ExecutionSessionResult(
             status=status,
             success=success,
@@ -1034,6 +1179,8 @@ class ExecutionSessionManager:
             context_recovery_available=(
                 context_memory.recovery_available if context_memory else False
             ),
+            log_count=len(logs),
+            last_log=logs[-1].to_dict() if logs else None,
             duration_ms=(
                 int((time.perf_counter() - started) * 1000)
                 if started is not None

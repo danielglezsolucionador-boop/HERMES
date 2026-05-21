@@ -181,6 +181,8 @@ class RuntimeStatus:
         self.last_execution_session_human_approval_status: str | None = None
         self.execution_session_context_snapshot: dict | None = None
         self.execution_session_context_recovery_available = False
+        self.execution_session_log_count = 0
+        self.execution_session_last_log: dict | None = None
         self.last_execution_session_previous_state: str | None = None
         self.last_execution_session_transition: str | None = None
         self.execution_session_transition_allowed = True
@@ -1139,6 +1141,14 @@ class RuntimeStatus:
         )
         self.execution_session_context_recovery_available = bool(
             result.get("context_recovery_available")
+        )
+        self.execution_session_log_count = max(
+            0,
+            int(result.get("log_count") or 0),
+        )
+        last_log = result.get("last_log")
+        self.execution_session_last_log = (
+            dict(last_log) if isinstance(last_log, dict) else None
         )
         self.last_execution_session_previous_state = result.get("previous_state")
         self.last_execution_session_transition = result.get("state_transition")
@@ -2615,6 +2625,8 @@ class RuntimeStatus:
             "context_recovery_available": (
                 self.execution_session_context_recovery_available
             ),
+            "log_count": self.execution_session_log_count,
+            "last_log": self.execution_session_last_log,
             "previous_state": self.last_execution_session_previous_state,
             "state_transition": self.last_execution_session_transition,
             "state_transition_allowed": (
