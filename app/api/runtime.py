@@ -144,6 +144,9 @@ async def runtime_status(session: AsyncSession = Depends(get_session)):
         knowledge_core_validation_metrics = (
             runner_runtime_status.knowledge_core_validation_metrics()
         )
+        workflow_execution_engine_metrics = (
+            runner_runtime_status.workflow_execution_engine_metrics()
+        )
         response_ingestion_metrics = runner_runtime_status.response_ingestion_metrics()
         response_validation_metrics = runner_runtime_status.response_validation_metrics()
         response_safety_metrics = runner_runtime_status.response_safety_metrics()
@@ -224,6 +227,9 @@ async def runtime_status(session: AsyncSession = Depends(get_session)):
             ),
             "knowledge_core_validation": (
                 knowledge_core_validation_metrics
+            ),
+            "workflow_execution_engine": (
+                workflow_execution_engine_metrics
             ),
             "response_ingestion": response_ingestion_metrics,
             "response_validation": response_validation_metrics,

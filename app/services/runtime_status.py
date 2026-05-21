@@ -1790,6 +1790,39 @@ class RuntimeStatus:
         self.knowledge_core_validation_reasons: list[str] = []
         self.knowledge_core_validation_last_error: str | None = None
         self.knowledge_core_validation_metadata: dict = {}
+        self.last_workflow_execution_engine_at: datetime | None = None
+        self.workflow_execution_engine_iteration = 0
+        self.workflow_execution_engine_status = "stopped"
+        self.workflow_executions_completed = 0
+        self.workflow_executions_blocked = 0
+        self.workflow_execution_engine_errors = 0
+        self.workflow_execution_engine_id: str | None = None
+        self.workflow_execution_workflow_id: str | None = None
+        self.workflow_execution_objective: str | None = None
+        self.workflow_execution_state: str | None = None
+        self.workflow_execution_continuation_status: str | None = None
+        self.workflow_execution_governance_status: str | None = None
+        self.workflow_execution_checkpoint_status: str | None = None
+        self.workflow_consistency_valid = False
+        self.workflow_runtime_integrity_valid = False
+        self.workflow_governance_alignment_valid = False
+        self.workflow_execution_continuity_valid = False
+        self.workflow_operational_stability_valid = False
+        self.workflow_execution_sequencing_controlled = False
+        self.workflow_integrity_preserved = False
+        self.workflow_execution_traceability_preserved = False
+        self.workflow_completion_confirmed = False
+        self.workflow_execution_steps: list[dict] = []
+        self.workflow_executed_steps: list[dict] = []
+        self.workflow_pending_steps: list[dict] = []
+        self.workflow_blocking_conditions: list[str] = []
+        self.workflow_missing_dependencies: list[str] = []
+        self.workflow_human_visibility_payload: dict = {}
+        self.workflow_execution_lifecycle: list[dict] = []
+        self.workflow_execution_engine_duration_ms = 0
+        self.workflow_execution_engine_reasons: list[str] = []
+        self.workflow_execution_engine_last_error: str | None = None
+        self.workflow_execution_engine_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -6660,6 +6693,98 @@ class RuntimeStatus:
         else:
             self.knowledge_core_validation_errors += 1
 
+    def mark_workflow_execution_engine_result(self, result: dict) -> None:
+        self.last_workflow_execution_engine_at = datetime.now(timezone.utc)
+        self.workflow_execution_engine_iteration += 1
+        self.workflow_execution_engine_status = result.get("status") or "unknown"
+        self.workflow_execution_engine_id = result.get("execution_id")
+        self.workflow_execution_workflow_id = result.get("workflow_id")
+        self.workflow_execution_objective = result.get("workflow_objective")
+        self.workflow_execution_state = result.get("execution_state")
+        self.workflow_execution_continuation_status = result.get(
+            "continuation_status"
+        )
+        self.workflow_execution_governance_status = result.get(
+            "governance_status"
+        )
+        self.workflow_execution_checkpoint_status = result.get(
+            "checkpoint_status"
+        )
+        self.workflow_consistency_valid = bool(
+            result.get("workflow_consistency_valid")
+        )
+        self.workflow_runtime_integrity_valid = bool(
+            result.get("runtime_integrity_valid")
+        )
+        self.workflow_governance_alignment_valid = bool(
+            result.get("governance_alignment_valid")
+        )
+        self.workflow_execution_continuity_valid = bool(
+            result.get("execution_continuity_valid")
+        )
+        self.workflow_operational_stability_valid = bool(
+            result.get("operational_stability_valid")
+        )
+        self.workflow_execution_sequencing_controlled = bool(
+            result.get("execution_sequencing_controlled")
+        )
+        self.workflow_integrity_preserved = bool(
+            result.get("workflow_integrity_preserved")
+        )
+        self.workflow_execution_traceability_preserved = bool(
+            result.get("execution_traceability_preserved")
+        )
+        self.workflow_completion_confirmed = bool(
+            result.get("workflow_completion_confirmed")
+        )
+        self.workflow_execution_steps = [
+            dict(step)
+            for step in (result.get("execution_steps") or [])
+            if isinstance(step, dict)
+        ]
+        self.workflow_executed_steps = [
+            dict(step)
+            for step in (result.get("executed_steps") or [])
+            if isinstance(step, dict)
+        ]
+        self.workflow_pending_steps = [
+            dict(step)
+            for step in (result.get("pending_steps") or [])
+            if isinstance(step, dict)
+        ]
+        self.workflow_blocking_conditions = [
+            str(item) for item in (result.get("blocking_conditions") or [])
+        ]
+        self.workflow_missing_dependencies = [
+            str(item) for item in (result.get("missing_dependencies") or [])
+        ]
+        self.workflow_human_visibility_payload = dict(
+            result.get("human_visibility_payload") or {}
+        )
+        self.workflow_execution_lifecycle = [
+            dict(entry)
+            for entry in (result.get("execution_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.workflow_execution_engine_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.workflow_execution_engine_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.workflow_execution_engine_last_error = result.get("error")
+        self.workflow_execution_engine_metadata = dict(
+            result.get("metadata") or {}
+        )
+
+        if self.workflow_execution_engine_status == "completed":
+            self.workflow_executions_completed += 1
+        elif self.workflow_execution_engine_status == "blocked":
+            self.workflow_executions_blocked += 1
+        else:
+            self.workflow_execution_engine_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -10244,6 +10369,78 @@ class RuntimeStatus:
             "metadata": dict(self.knowledge_core_validation_metadata),
         }
 
+    def workflow_execution_engine_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_workflow_execution_engine_at": fmt(
+                self.last_workflow_execution_engine_at
+            ),
+            "workflow_execution_engine_iteration": (
+                self.workflow_execution_engine_iteration
+            ),
+            "workflow_execution_engine_status": (
+                self.workflow_execution_engine_status
+            ),
+            "workflow_executions_completed": self.workflow_executions_completed,
+            "workflow_executions_blocked": self.workflow_executions_blocked,
+            "workflow_execution_engine_errors": (
+                self.workflow_execution_engine_errors
+            ),
+            "execution_id": self.workflow_execution_engine_id,
+            "workflow_id": self.workflow_execution_workflow_id,
+            "workflow_objective": self.workflow_execution_objective,
+            "execution_state": self.workflow_execution_state,
+            "continuation_status": (
+                self.workflow_execution_continuation_status
+            ),
+            "governance_status": self.workflow_execution_governance_status,
+            "checkpoint_status": self.workflow_execution_checkpoint_status,
+            "workflow_consistency_valid": self.workflow_consistency_valid,
+            "runtime_integrity_valid": self.workflow_runtime_integrity_valid,
+            "governance_alignment_valid": (
+                self.workflow_governance_alignment_valid
+            ),
+            "execution_continuity_valid": (
+                self.workflow_execution_continuity_valid
+            ),
+            "operational_stability_valid": (
+                self.workflow_operational_stability_valid
+            ),
+            "execution_sequencing_controlled": (
+                self.workflow_execution_sequencing_controlled
+            ),
+            "workflow_integrity_preserved": self.workflow_integrity_preserved,
+            "execution_traceability_preserved": (
+                self.workflow_execution_traceability_preserved
+            ),
+            "workflow_completion_confirmed": (
+                self.workflow_completion_confirmed
+            ),
+            "execution_steps": [
+                dict(step) for step in self.workflow_execution_steps
+            ],
+            "executed_steps": [
+                dict(step) for step in self.workflow_executed_steps
+            ],
+            "pending_steps": [
+                dict(step) for step in self.workflow_pending_steps
+            ],
+            "blocking_conditions": list(self.workflow_blocking_conditions),
+            "missing_dependencies": list(self.workflow_missing_dependencies),
+            "human_visibility_payload": dict(
+                self.workflow_human_visibility_payload
+            ),
+            "execution_lifecycle": [
+                dict(entry) for entry in self.workflow_execution_lifecycle
+            ],
+            "duration_ms": self.workflow_execution_engine_duration_ms,
+            "reasons": list(self.workflow_execution_engine_reasons),
+            "last_error": self.workflow_execution_engine_last_error,
+            "metadata": dict(self.workflow_execution_engine_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -10495,6 +10692,9 @@ class RuntimeStatus:
             ),
             "knowledge_core_validation": (
                 self.knowledge_core_validation_metrics()
+            ),
+            "workflow_execution_engine": (
+                self.workflow_execution_engine_metrics()
             ),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
