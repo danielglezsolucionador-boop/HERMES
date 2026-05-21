@@ -92,6 +92,9 @@ async def runtime_status(session: AsyncSession = Depends(get_session)):
         executive_communication_metrics = (
             runner_runtime_status.executive_communication_metrics()
         )
+        governance_foundation_metrics = (
+            runner_runtime_status.governance_foundation_metrics()
+        )
         response_ingestion_metrics = runner_runtime_status.response_ingestion_metrics()
         response_validation_metrics = runner_runtime_status.response_validation_metrics()
         response_safety_metrics = runner_runtime_status.response_safety_metrics()
@@ -145,6 +148,7 @@ async def runtime_status(session: AsyncSession = Depends(get_session)):
             "learning_safety": learning_safety_metrics,
             "ecosystem_registry": ecosystem_registry_metrics,
             "executive_communication": executive_communication_metrics,
+            "governance_foundation": governance_foundation_metrics,
             "response_ingestion": response_ingestion_metrics,
             "response_validation": response_validation_metrics,
             "response_safety": response_safety_metrics,

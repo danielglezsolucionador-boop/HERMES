@@ -1138,6 +1138,46 @@ class RuntimeStatus:
         self.executive_communication_reasons: list[str] = []
         self.executive_communication_last_error: str | None = None
         self.executive_communication_metadata: dict = {}
+        self.last_governance_foundation_at: datetime | None = None
+        self.governance_foundation_iteration = 0
+        self.governance_foundation_status = "stopped"
+        self.governance_foundation_validated = 0
+        self.governance_foundation_blocked = 0
+        self.governance_foundation_errors = 0
+        self.last_governance_id: str | None = None
+        self.governance_authority_source: str | None = None
+        self.governance_authority_level: str | None = None
+        self.governance_type: str | None = None
+        self.governance_execution_context: dict = {}
+        self.governance_status_value: str | None = None
+        self.governance_approval_status: str | None = None
+        self.governance_security_status: str | None = None
+        self.governance_blocking_status: str | None = None
+        self.governance_audit_status: str | None = None
+        self.governance_operational_status: str | None = None
+        self.governance_authority_identified = False
+        self.governance_authority_legitimate = False
+        self.governance_human_authority_preserved = False
+        self.governance_execution_limits_preserved = False
+        self.governance_runtime_protected = False
+        self.governance_audit_security_respected = False
+        self.governance_approval_required = False
+        self.governance_approval_satisfied = False
+        self.governance_security_escalation_required = False
+        self.governance_blocking_active = False
+        self.governance_execution_permitted = False
+        self.governance_transparency_preserved = False
+        self.governance_traceability_preserved = False
+        self.governance_reporting_target: str | None = None
+        self.governance_active_authorities: list[dict] = []
+        self.governance_rules: list[str] = []
+        self.governance_report_payload: dict = {}
+        self.governance_lifecycle: list[dict] = []
+        self.governance_risks: list[str] = []
+        self.governance_foundation_duration_ms = 0
+        self.governance_foundation_reasons: list[str] = []
+        self.governance_foundation_last_error: str | None = None
+        self.governance_foundation_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -4310,6 +4350,99 @@ class RuntimeStatus:
         else:
             self.executive_communication_errors += 1
 
+    def mark_governance_foundation_result(self, result: dict) -> None:
+        self.last_governance_foundation_at = datetime.now(timezone.utc)
+        self.governance_foundation_iteration += 1
+        self.governance_foundation_status = result.get("status") or "unknown"
+        self.last_governance_id = result.get("governance_id")
+        self.governance_authority_source = result.get("authority_source")
+        self.governance_authority_level = result.get("authority_level")
+        self.governance_type = result.get("governance_type")
+        self.governance_execution_context = dict(
+            result.get("execution_context") or {}
+        )
+        self.governance_status_value = result.get("governance_status")
+        self.governance_approval_status = result.get("approval_status")
+        self.governance_security_status = result.get("security_status")
+        self.governance_blocking_status = result.get("blocking_status")
+        self.governance_audit_status = result.get("audit_status")
+        self.governance_operational_status = result.get("operational_status")
+        self.governance_authority_identified = bool(
+            result.get("authority_identified")
+        )
+        self.governance_authority_legitimate = bool(
+            result.get("authority_legitimate")
+        )
+        self.governance_human_authority_preserved = bool(
+            result.get("human_authority_preserved")
+        )
+        self.governance_execution_limits_preserved = bool(
+            result.get("execution_limits_preserved")
+        )
+        self.governance_runtime_protected = bool(
+            result.get("runtime_protected")
+        )
+        self.governance_audit_security_respected = bool(
+            result.get("audit_security_respected")
+        )
+        self.governance_approval_required = bool(
+            result.get("approval_required")
+        )
+        self.governance_approval_satisfied = bool(
+            result.get("approval_satisfied")
+        )
+        self.governance_security_escalation_required = bool(
+            result.get("security_escalation_required")
+        )
+        self.governance_blocking_active = bool(result.get("blocking_active"))
+        self.governance_execution_permitted = bool(
+            result.get("execution_permitted")
+        )
+        self.governance_transparency_preserved = bool(
+            result.get("governance_transparency_preserved")
+        )
+        self.governance_traceability_preserved = bool(
+            result.get("traceability_preserved")
+        )
+        self.governance_reporting_target = result.get("reporting_target")
+        self.governance_active_authorities = [
+            dict(authority)
+            for authority in (result.get("active_authorities") or [])
+            if isinstance(authority, dict)
+        ]
+        self.governance_rules = [
+            str(rule) for rule in (result.get("governance_rules") or [])
+        ]
+        self.governance_report_payload = dict(
+            result.get("report_payload") or {}
+        )
+        self.governance_lifecycle = [
+            dict(entry)
+            for entry in (result.get("governance_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.governance_risks = [
+            str(item) for item in (result.get("risks") or [])
+        ]
+        self.governance_foundation_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.governance_foundation_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.governance_foundation_last_error = result.get("error")
+        self.governance_foundation_metadata = dict(
+            result.get("metadata") or {}
+        )
+
+        if self.governance_foundation_status == "validated":
+            self.governance_foundation_validated += 1
+        elif self.governance_foundation_status == "blocked":
+            self.governance_foundation_blocked += 1
+        else:
+            self.governance_foundation_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -6471,6 +6604,80 @@ class RuntimeStatus:
             "metadata": dict(self.executive_communication_metadata),
         }
 
+    def governance_foundation_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_governance_foundation_at": fmt(
+                self.last_governance_foundation_at
+            ),
+            "governance_foundation_iteration": (
+                self.governance_foundation_iteration
+            ),
+            "governance_foundation_status": (
+                self.governance_foundation_status
+            ),
+            "governance_foundation_validated": (
+                self.governance_foundation_validated
+            ),
+            "governance_foundation_blocked": (
+                self.governance_foundation_blocked
+            ),
+            "governance_foundation_errors": (
+                self.governance_foundation_errors
+            ),
+            "governance_id": self.last_governance_id,
+            "authority_source": self.governance_authority_source,
+            "authority_level": self.governance_authority_level,
+            "governance_type": self.governance_type,
+            "execution_context": dict(self.governance_execution_context),
+            "governance_status": self.governance_status_value,
+            "approval_status": self.governance_approval_status,
+            "security_status": self.governance_security_status,
+            "blocking_status": self.governance_blocking_status,
+            "audit_status": self.governance_audit_status,
+            "operational_status": self.governance_operational_status,
+            "authority_identified": self.governance_authority_identified,
+            "authority_legitimate": self.governance_authority_legitimate,
+            "human_authority_preserved": (
+                self.governance_human_authority_preserved
+            ),
+            "execution_limits_preserved": (
+                self.governance_execution_limits_preserved
+            ),
+            "runtime_protected": self.governance_runtime_protected,
+            "audit_security_respected": (
+                self.governance_audit_security_respected
+            ),
+            "approval_required": self.governance_approval_required,
+            "approval_satisfied": self.governance_approval_satisfied,
+            "security_escalation_required": (
+                self.governance_security_escalation_required
+            ),
+            "blocking_active": self.governance_blocking_active,
+            "execution_permitted": self.governance_execution_permitted,
+            "governance_transparency_preserved": (
+                self.governance_transparency_preserved
+            ),
+            "traceability_preserved": self.governance_traceability_preserved,
+            "reporting_target": self.governance_reporting_target,
+            "active_authorities": [
+                dict(authority)
+                for authority in self.governance_active_authorities
+            ],
+            "governance_rules": list(self.governance_rules),
+            "report_payload": dict(self.governance_report_payload),
+            "governance_lifecycle": [
+                dict(entry) for entry in self.governance_lifecycle
+            ],
+            "risks": list(self.governance_risks),
+            "duration_ms": self.governance_foundation_duration_ms,
+            "reasons": list(self.governance_foundation_reasons),
+            "last_error": self.governance_foundation_last_error,
+            "metadata": dict(self.governance_foundation_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -6683,6 +6890,7 @@ class RuntimeStatus:
             "learning_safety": self.learning_safety_metrics(),
             "ecosystem_registry": self.ecosystem_registry_metrics(),
             "executive_communication": self.executive_communication_metrics(),
+            "governance_foundation": self.governance_foundation_metrics(),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
             "response_safety": self.response_safety_metrics(),
