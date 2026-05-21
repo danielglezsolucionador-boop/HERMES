@@ -1896,6 +1896,40 @@ class RuntimeStatus:
         self.human_checkpoint_control_reasons: list[str] = []
         self.human_checkpoint_control_last_error: str | None = None
         self.human_checkpoint_control_metadata: dict = {}
+        self.last_workflow_recovery_control_at: datetime | None = None
+        self.workflow_recovery_control_iteration = 0
+        self.workflow_recovery_control_status = "stopped"
+        self.workflow_recoveries_completed = 0
+        self.workflow_recoveries_blocked = 0
+        self.workflow_recovery_control_errors = 0
+        self.workflow_recovery_control_id: str | None = None
+        self.workflow_recovery_id: str | None = None
+        self.workflow_recovery_workflow_id: str | None = None
+        self.workflow_recovery_continuation_status: str | None = None
+        self.workflow_recovery_status_value: str | None = None
+        self.workflow_recovery_governance_status: str | None = None
+        self.workflow_recovery_checkpoint_status: str | None = None
+        self.workflow_recovery_interruption_detected = False
+        self.workflow_recovery_state_restored = False
+        self.workflow_recovery_valid = False
+        self.workflow_recovery_continuation_allowed = False
+        self.workflow_recovery_integrity_valid = False
+        self.workflow_recovery_runtime_continuity_valid = False
+        self.workflow_recovery_governance_alignment_valid = False
+        self.workflow_recovery_execution_consistency_valid = False
+        self.workflow_recovery_operational_stability_valid = False
+        self.workflow_recovery_history_preserved = False
+        self.workflow_recovery_traceability_preserved = False
+        self.workflow_recovery_workflow_state: dict = {}
+        self.workflow_recovery_execution_context: dict = {}
+        self.workflow_recovery_restored_state: dict = {}
+        self.workflow_recovery_blocking_conditions: list[str] = []
+        self.workflow_recovery_visibility_payload: dict = {}
+        self.workflow_recovery_lifecycle: list[dict] = []
+        self.workflow_recovery_control_duration_ms = 0
+        self.workflow_recovery_control_reasons: list[str] = []
+        self.workflow_recovery_control_last_error: str | None = None
+        self.workflow_recovery_control_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -7035,6 +7069,93 @@ class RuntimeStatus:
         else:
             self.human_checkpoint_control_errors += 1
 
+    def mark_workflow_recovery_control_result(self, result: dict) -> None:
+        self.last_workflow_recovery_control_at = datetime.now(timezone.utc)
+        self.workflow_recovery_control_iteration += 1
+        self.workflow_recovery_control_status = result.get("status") or "unknown"
+        self.workflow_recovery_control_id = result.get("control_id")
+        self.workflow_recovery_id = result.get("recovery_id")
+        self.workflow_recovery_workflow_id = result.get("workflow_id")
+        self.workflow_recovery_continuation_status = result.get(
+            "continuation_status"
+        )
+        self.workflow_recovery_status_value = result.get("recovery_status")
+        self.workflow_recovery_governance_status = result.get(
+            "governance_status"
+        )
+        self.workflow_recovery_checkpoint_status = result.get(
+            "checkpoint_status"
+        )
+        self.workflow_recovery_interruption_detected = bool(
+            result.get("interruption_detected")
+        )
+        self.workflow_recovery_state_restored = bool(
+            result.get("state_restored")
+        )
+        self.workflow_recovery_valid = bool(result.get("recovery_valid"))
+        self.workflow_recovery_continuation_allowed = bool(
+            result.get("continuation_allowed")
+        )
+        self.workflow_recovery_integrity_valid = bool(
+            result.get("workflow_integrity_valid")
+        )
+        self.workflow_recovery_runtime_continuity_valid = bool(
+            result.get("runtime_continuity_valid")
+        )
+        self.workflow_recovery_governance_alignment_valid = bool(
+            result.get("governance_alignment_valid")
+        )
+        self.workflow_recovery_execution_consistency_valid = bool(
+            result.get("execution_consistency_valid")
+        )
+        self.workflow_recovery_operational_stability_valid = bool(
+            result.get("operational_stability_valid")
+        )
+        self.workflow_recovery_history_preserved = bool(
+            result.get("workflow_history_preserved")
+        )
+        self.workflow_recovery_traceability_preserved = bool(
+            result.get("execution_traceability_preserved")
+        )
+        self.workflow_recovery_workflow_state = dict(
+            result.get("workflow_state") or {}
+        )
+        self.workflow_recovery_execution_context = dict(
+            result.get("execution_context") or {}
+        )
+        self.workflow_recovery_restored_state = dict(
+            result.get("restored_state") or {}
+        )
+        self.workflow_recovery_blocking_conditions = [
+            str(item) for item in (result.get("blocking_conditions") or [])
+        ]
+        self.workflow_recovery_visibility_payload = dict(
+            result.get("human_visibility_payload") or {}
+        )
+        self.workflow_recovery_lifecycle = [
+            dict(entry)
+            for entry in (result.get("recovery_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.workflow_recovery_control_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.workflow_recovery_control_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.workflow_recovery_control_last_error = result.get("error")
+        self.workflow_recovery_control_metadata = dict(
+            result.get("metadata") or {}
+        )
+
+        if self.workflow_recovery_control_status == "recovered":
+            self.workflow_recoveries_completed += 1
+        elif self.workflow_recovery_control_status == "blocked":
+            self.workflow_recoveries_blocked += 1
+        else:
+            self.workflow_recovery_control_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -10842,6 +10963,85 @@ class RuntimeStatus:
             "metadata": dict(self.human_checkpoint_control_metadata),
         }
 
+    def workflow_recovery_control_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_workflow_recovery_control_at": fmt(
+                self.last_workflow_recovery_control_at
+            ),
+            "workflow_recovery_control_iteration": (
+                self.workflow_recovery_control_iteration
+            ),
+            "workflow_recovery_control_status": (
+                self.workflow_recovery_control_status
+            ),
+            "workflow_recoveries_completed": (
+                self.workflow_recoveries_completed
+            ),
+            "workflow_recoveries_blocked": self.workflow_recoveries_blocked,
+            "workflow_recovery_control_errors": (
+                self.workflow_recovery_control_errors
+            ),
+            "control_id": self.workflow_recovery_control_id,
+            "recovery_id": self.workflow_recovery_id,
+            "workflow_id": self.workflow_recovery_workflow_id,
+            "continuation_status": (
+                self.workflow_recovery_continuation_status
+            ),
+            "recovery_status": self.workflow_recovery_status_value,
+            "governance_status": self.workflow_recovery_governance_status,
+            "checkpoint_status": self.workflow_recovery_checkpoint_status,
+            "interruption_detected": (
+                self.workflow_recovery_interruption_detected
+            ),
+            "state_restored": self.workflow_recovery_state_restored,
+            "recovery_valid": self.workflow_recovery_valid,
+            "continuation_allowed": (
+                self.workflow_recovery_continuation_allowed
+            ),
+            "workflow_integrity_valid": (
+                self.workflow_recovery_integrity_valid
+            ),
+            "runtime_continuity_valid": (
+                self.workflow_recovery_runtime_continuity_valid
+            ),
+            "governance_alignment_valid": (
+                self.workflow_recovery_governance_alignment_valid
+            ),
+            "execution_consistency_valid": (
+                self.workflow_recovery_execution_consistency_valid
+            ),
+            "operational_stability_valid": (
+                self.workflow_recovery_operational_stability_valid
+            ),
+            "workflow_history_preserved": (
+                self.workflow_recovery_history_preserved
+            ),
+            "execution_traceability_preserved": (
+                self.workflow_recovery_traceability_preserved
+            ),
+            "workflow_state": dict(self.workflow_recovery_workflow_state),
+            "execution_context": dict(
+                self.workflow_recovery_execution_context
+            ),
+            "restored_state": dict(self.workflow_recovery_restored_state),
+            "blocking_conditions": list(
+                self.workflow_recovery_blocking_conditions
+            ),
+            "human_visibility_payload": dict(
+                self.workflow_recovery_visibility_payload
+            ),
+            "recovery_lifecycle": [
+                dict(entry) for entry in self.workflow_recovery_lifecycle
+            ],
+            "duration_ms": self.workflow_recovery_control_duration_ms,
+            "reasons": list(self.workflow_recovery_control_reasons),
+            "last_error": self.workflow_recovery_control_last_error,
+            "metadata": dict(self.workflow_recovery_control_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -11102,6 +11302,9 @@ class RuntimeStatus:
             ),
             "human_checkpoint_control": (
                 self.human_checkpoint_control_metrics()
+            ),
+            "workflow_recovery_control": (
+                self.workflow_recovery_control_metrics()
             ),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
