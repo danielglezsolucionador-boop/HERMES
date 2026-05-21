@@ -1,8 +1,8 @@
 """
 Runtime loop foundation for Hermes.
 
-This loop maintains runtime heartbeat and lifecycle state. Task claiming is
-controlled and disabled by default. It never executes or retries tasks.
+This loop maintains runtime heartbeat and lifecycle state. Task claiming and
+task execution are controlled and disabled by default.
 Execution sessions, timeout control, provider bridge, response ingestion,
 response validation, response safety, and orchestration foundations are
 initialized for observability but do not run autonomous work.
@@ -11,12 +11,16 @@ import asyncio
 import logging
 import time
 from collections.abc import Awaitable, Callable
+from datetime import datetime, timezone
+from typing import Any
+from uuid import UUID
 
 from sqlalchemy import func, select
 
 from app.core.config import settings
 from app.db.engine import AsyncSessionLocal
 from app.models.task import Task
+from app.runner.executors import execute_task
 from app.runner.pickup_safety import PickupSafety, PickupSafetyResult
 from app.runner.execution_safety import ExecutionSafety, ExecutionSafetyResult
 from app.runner.execution_session import (
@@ -35,7 +39,11 @@ from app.runner.response_ingestion import ResponseIngestionRuntime
 from app.runner.response_safety import ResponseSafetyRuntime
 from app.runner.response_validation import ResponseValidationRuntime
 from app.runner.retry_control import RetryControl, RetryControlResult
-from app.runner.task_claiming import TaskClaiming, TaskClaimingResult
+from app.runner.task_claiming import (
+    TASK_CLAIM_STATE_CLAIMED,
+    TaskClaiming,
+    TaskClaimingResult,
+)
 from app.runner.task_discovery import TaskDiscovery, TaskDiscoveryResult
 from app.runner.task_execution import TaskExecutionRuntime
 from app.runner.timeout_control import TimeoutControl, TimeoutControlResult
@@ -59,6 +67,7 @@ class RuntimeLoop:
         pending_task_counter: Callable[[], Awaitable[int]] | None = None,
         task_discovery: Callable[[], Awaitable[TaskDiscoveryResult]] | None = None,
         task_claiming: Callable[[TaskDiscoveryResult], Awaitable[TaskClaimingResult]] | None = None,
+        task_executor: Callable[[Task], Awaitable[dict[str, Any]]] | None = None,
         pickup_safety: Callable[[], Awaitable[PickupSafetyResult]] | None = None,
         execution_session: Callable[[], Awaitable[ExecutionSessionResult]] | None = None,
         execution_safety: Callable[[], Awaitable[ExecutionSafetyResult]] | None = None,
@@ -111,6 +120,7 @@ class RuntimeLoop:
         self.execution_session = execution_session or self._inspect_execution_session
         self.execution_enabled = bool(execution_enabled)
         self.task_execution_runtime = TaskExecutionRuntime()
+        self.task_executor = task_executor or execute_task
         self.execution_safety_enabled = bool(execution_safety_enabled)
         self.execution_safety = execution_safety or ExecutionSafety().inspect
         self.timeout_control_enabled = bool(timeout_control_enabled)
@@ -177,6 +187,7 @@ class RuntimeLoop:
             self.status.mark_pickup_safety_completed(
                 pickup_safety_result.to_dict()
             )
+        claiming_result: TaskClaimingResult | None = None
         if self.claiming_enabled:
             if (
                 pickup_safety_result is not None
@@ -193,10 +204,16 @@ class RuntimeLoop:
             self.status.mark_execution_session_completed(
                 execution_session_result.to_dict()
             )
+        execution_safety_result: ExecutionSafetyResult | None = None
         if self.execution_safety_enabled:
             execution_safety_result = await self.execution_safety()
             self.status.mark_execution_safety_completed(
                 execution_safety_result.to_dict()
+            )
+        if self.execution_enabled:
+            await self._execute_controlled_task(
+                claiming_result=claiming_result,
+                execution_safety_result=execution_safety_result,
             )
         if self.timeout_control_enabled:
             timeout_control_result = await self.timeout_control()
@@ -252,6 +269,255 @@ class RuntimeLoop:
         tasks_detected = await self.pending_task_counter()
         duration_ms = int((time.perf_counter() - started) * 1000)
         return TaskDiscoveryResult.from_count(tasks_detected, duration_ms)
+
+    async def _execute_controlled_task(
+        self,
+        claiming_result: TaskClaimingResult | None = None,
+        execution_safety_result: ExecutionSafetyResult | None = None,
+    ) -> None:
+        if (
+            execution_safety_result is not None
+            and not execution_safety_result.allows_execution
+        ):
+            self.status.mark_task_execution_result(
+                self._execution_rejected_result(
+                    reason="execution_safety_blocked",
+                    error=execution_safety_result.error,
+                )
+            )
+            return
+
+        task = await self._claimed_task_for_execution(claiming_result)
+        if task is None:
+            return
+
+        prepared = self.task_execution_runtime.prepare(
+            task,
+            runtime_active=not self._stop_requested,
+        )
+        self.status.mark_task_execution_result(prepared.to_dict())
+        if not prepared.eligible or prepared.context is None:
+            return
+
+        if self._task_requires_provider(task) and not self.provider_bridge_enabled:
+            reason = "provider_bridge_disabled_for_ai_task"
+            self.status.mark_task_execution_result(
+                self._execution_rejected_result(task=task, reason=reason)
+            )
+            await self._persist_execution_blocked(task, reason)
+            logger.warning(
+                "runtime_loop: execution blocked task_id=%s reason=%s",
+                task.id,
+                reason,
+            )
+            return
+
+        started = self.task_execution_runtime.start(prepared.context)
+        self.status.mark_task_execution_result(started.to_dict())
+        if not started.eligible or started.context is None:
+            return
+
+        self.status.mark_task_started(str(task.id), task.title)
+        try:
+            await self._mark_task_doing(task)
+            result = await self.task_executor(task)
+            await self._persist_execution_success(task, result)
+            completed = self.task_execution_runtime.complete(started.context)
+            self.status.mark_task_execution_result(completed.to_dict())
+            self.status.mark_task_done()
+        except Exception as exc:
+            error = str(exc) or exc.__class__.__name__
+            failed = self.task_execution_runtime.fail(started.context, error)
+            self.status.mark_task_execution_result(failed.to_dict())
+            await self._persist_execution_failure(task, error)
+            self.status.mark_task_failed()
+            logger.error(
+                "runtime_loop: execution failed task_id=%s error=%s",
+                task.id,
+                error,
+            )
+
+    async def _claimed_task_for_execution(
+        self,
+        claiming_result: TaskClaimingResult | None,
+    ) -> Task | None:
+        if (
+            claiming_result is not None
+            and claiming_result.status == "claimed"
+            and claiming_result.task_id
+        ):
+            task = await self._load_claimed_task(claiming_result.task_id)
+            if task is not None:
+                return task
+        return await self._load_next_claimed_task()
+
+    async def _load_claimed_task(self, task_id: str) -> Task | None:
+        try:
+            task_uuid = UUID(str(task_id))
+        except (TypeError, ValueError):
+            return None
+
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(Task).where(
+                    Task.id == task_uuid,
+                    Task.status == TaskStatus.claimed.value,
+                    Task.runner_id == self.task_execution_runtime.runner_id,
+                    Task.runtime_id == self.task_execution_runtime.runtime_id,
+                    Task.claim_state == TASK_CLAIM_STATE_CLAIMED,
+                )
+            )
+            return result.scalar_one_or_none()
+
+    async def _load_next_claimed_task(self) -> Task | None:
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(Task)
+                .where(
+                    Task.status == TaskStatus.claimed.value,
+                    Task.runner_id == self.task_execution_runtime.runner_id,
+                    Task.runtime_id == self.task_execution_runtime.runtime_id,
+                    Task.claim_state == TASK_CLAIM_STATE_CLAIMED,
+                )
+                .order_by(Task.claimed_at.asc().nullsfirst(), Task.created_at.asc())
+                .limit(1)
+            )
+            return result.scalar_one_or_none()
+
+    async def _mark_task_doing(self, task: Task) -> None:
+        now = datetime.now(timezone.utc)
+        async with AsyncSessionLocal() as session:
+            async with session.begin():
+                current = await session.get(Task, task.id)
+                if current is None:
+                    raise RuntimeError("claimed_task_missing_before_execution")
+                current.status = TaskStatus.doing.value
+                current.started_at = now
+                current.completed_at = None
+                current.error = None
+                current.updated_at = now
+        task.status = TaskStatus.doing.value
+        task.started_at = now
+        task.completed_at = None
+        task.error = None
+
+    async def _persist_execution_success(
+        self,
+        task: Task,
+        result: dict[str, Any],
+    ) -> None:
+        now = datetime.now(timezone.utc)
+        async with AsyncSessionLocal() as session:
+            async with session.begin():
+                current = await session.get(Task, task.id)
+                if current is None:
+                    raise RuntimeError("executed_task_missing_before_success")
+                current.status = TaskStatus.done.value
+                current.result = result
+                current.error = None
+                current.completed_at = now
+                current.claim_state = None
+                current.updated_at = now
+        logger.info("runtime_loop: execution completed task_id=%s", task.id)
+
+    async def _persist_execution_failure(self, task: Task, error: str) -> None:
+        now = datetime.now(timezone.utc)
+        retry_count = int(task.retry_count or 0)
+        max_retries = int(task.max_retries or 0)
+        should_retry = retry_count < max_retries
+
+        async with AsyncSessionLocal() as session:
+            async with session.begin():
+                current = await session.get(Task, task.id)
+                if current is None:
+                    raise RuntimeError("executed_task_missing_before_failure")
+                current.error = error
+                current.completed_at = now
+                current.claim_state = None
+                current.runner_id = None
+                current.runtime_id = None
+                current.claimed_at = None
+                current.updated_at = now
+                if should_retry:
+                    current.status = TaskStatus.pending.value
+                    current.retry_count = retry_count + 1
+                    current.last_retry_at = now
+                else:
+                    current.status = TaskStatus.failed.value
+
+        if should_retry:
+            logger.warning(
+                "runtime_loop: execution requeued task_id=%s retry=%s/%s error=%s",
+                task.id,
+                retry_count + 1,
+                max_retries,
+                error,
+            )
+            return
+        logger.warning(
+            "runtime_loop: execution failed task_id=%s retries=%s/%s error=%s",
+            task.id,
+            retry_count,
+            max_retries,
+            error,
+        )
+
+    async def _persist_execution_blocked(self, task: Task, reason: str) -> None:
+        now = datetime.now(timezone.utc)
+        async with AsyncSessionLocal() as session:
+            async with session.begin():
+                current = await session.get(Task, task.id)
+                if current is None:
+                    raise RuntimeError("blocked_task_missing_before_review")
+                current.status = TaskStatus.review.value
+                current.error = reason
+                current.completed_at = now
+                current.claim_state = None
+                current.runner_id = None
+                current.runtime_id = None
+                current.claimed_at = None
+                current.updated_at = now
+
+    def _task_requires_provider(self, task: Task) -> bool:
+        payload = task.payload if isinstance(task.payload, dict) else {}
+        return (
+            payload.get("executor") == "ai"
+            or payload.get("type") == "ai"
+            or payload.get("agent") in {"claude", "vulcano", "openrouter"}
+        )
+
+    def _execution_rejected_result(
+        self,
+        reason: str,
+        task: Task | None = None,
+        error: str | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "status": "rejected",
+            "eligible": False,
+            "runner_id": self.task_execution_runtime.runner_id,
+            "runtime_id": self.task_execution_runtime.runtime_id,
+            "runtime_owner": self.task_execution_runtime.runtime_owner,
+            "task_id": str(task.id) if task is not None else None,
+            "task_title": task.title if task is not None else None,
+            "active_executions": 0,
+            "max_concurrent_executions": (
+                self.task_execution_runtime.max_concurrent_executions
+            ),
+            "max_duration_seconds": (
+                self.task_execution_runtime.max_duration_seconds
+            ),
+            "max_runtime_load": self.task_execution_runtime.max_runtime_load,
+            "runtime_load": self.task_execution_runtime.visibility().get(
+                "runtime_load"
+            ),
+            "max_memory_mb": self.task_execution_runtime.max_memory_mb,
+            "memory_usage_mb": self.task_execution_runtime.visibility().get(
+                "memory_usage_mb"
+            ),
+            "reasons": [reason],
+            "error": error,
+        }
 
     async def _inspect_timeout_control(self) -> TimeoutControlResult:
         return await self.timeout_control_runtime.inspect(

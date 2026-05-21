@@ -1,4 +1,7 @@
 import asyncio
+import uuid
+from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 
@@ -6,6 +9,7 @@ from app.runner.runtime_loop import RuntimeLoop
 from app.runner.pickup_safety import PickupSafetyResult
 from app.runner.task_claiming import TaskClaimingResult
 from app.runner.task_discovery import TaskDiscoveryResult
+from app.schemas.task import TaskStatus
 from app.services.runtime_status import RuntimeStatus
 
 
@@ -252,6 +256,11 @@ async def test_runtime_loop_initializes_execution_foundation_metrics():
         execution_enabled=True,
     )
 
+    async def no_claimed_task():
+        return None
+
+    loop._load_next_claimed_task = no_claimed_task
+
     task = asyncio.create_task(loop.run())
     await asyncio.sleep(0.03)
     execution = status.execution_metrics()
@@ -273,6 +282,256 @@ async def test_runtime_loop_initializes_execution_foundation_metrics():
     assert execution_session["max_log_entries"] == 100
     assert execution_session["runtime_owner"] == "hermes-runner:hermes-runtime"
     assert execution_session["runtime_protected"] is True
+
+
+@pytest.mark.asyncio
+async def test_runtime_loop_executes_claimed_task_when_execution_enabled():
+    task_id = uuid.uuid4()
+    claimed_task = SimpleNamespace(
+        id=task_id,
+        title="execution canary",
+        status=TaskStatus.claimed.value,
+        phase="canary",
+        payload={"executor": "default"},
+        retry_count=0,
+        max_retries=1,
+        runner_id="hermes-runner",
+        runtime_id="hermes-runtime",
+        claim_state="claimed",
+        claimed_at=datetime.now(timezone.utc),
+    )
+    events = []
+
+    async def one_discovered_task() -> TaskDiscoveryResult:
+        return TaskDiscoveryResult.from_count(1)
+
+    async def claims_one_task(discovery: TaskDiscoveryResult) -> TaskClaimingResult:
+        return TaskClaimingResult(
+            status="claimed",
+            runner_id="hermes-runner",
+            runtime_id="hermes-runtime",
+            attempted_count=1,
+            claimed_count=1,
+            active_claims=1,
+            max_concurrent_claims=1,
+            max_attempts_per_cycle=1,
+            task_id=str(task_id),
+            task_title=claimed_task.title,
+            claimed_at=claimed_task.claimed_at.isoformat(),
+            claim_state="claimed",
+        )
+
+    async def execute_task(task):
+        events.append(("execute", str(task.id), task.status))
+        return {"executed": True, "task_id": str(task.id), "executor": "test"}
+
+    async def load_claimed_task(loaded_task_id: str):
+        assert loaded_task_id == str(task_id)
+        return claimed_task
+
+    async def mark_task_doing(task):
+        task.status = TaskStatus.doing.value
+        events.append(("doing", str(task.id), task.status))
+
+    async def persist_success(task, result):
+        events.append(("success", str(task.id), result["executed"]))
+
+    status = RuntimeStatus()
+    loop = RuntimeLoop(
+        status=status,
+        interval_seconds=0.01,
+        min_interval_seconds=0.01,
+        heartbeat_log_every=1000,
+        task_discovery=one_discovered_task,
+        task_claiming=claims_one_task,
+        task_executor=execute_task,
+        claiming_enabled=True,
+        execution_enabled=True,
+        execution_safety_enabled=True,
+    )
+    loop._load_claimed_task = load_claimed_task
+
+    async def no_claimed_task():
+        return None
+
+    loop._load_next_claimed_task = no_claimed_task
+    loop._mark_task_doing = mark_task_doing
+    loop._persist_execution_success = persist_success
+
+    await loop._cycle()
+
+    execution = status.execution_metrics()
+    assert events == [
+        ("doing", str(task_id), TaskStatus.doing.value),
+        ("execute", str(task_id), TaskStatus.doing.value),
+        ("success", str(task_id), True),
+    ]
+    assert execution["executions_prepared"] == 1
+    assert execution["executions_started"] == 1
+    assert execution["executions_completed"] == 1
+    assert execution["execution_status"] == "completed"
+    assert execution["active_executions"] == 0
+    assert execution["task_id"] == str(task_id)
+
+
+@pytest.mark.asyncio
+async def test_runtime_loop_persists_execution_failure_for_claimed_task():
+    task_id = uuid.uuid4()
+    claimed_task = SimpleNamespace(
+        id=task_id,
+        title="execution failure canary",
+        status=TaskStatus.claimed.value,
+        phase="canary",
+        payload={"executor": "default"},
+        retry_count=0,
+        max_retries=1,
+        runner_id="hermes-runner",
+        runtime_id="hermes-runtime",
+        claim_state="claimed",
+        claimed_at=datetime.now(timezone.utc),
+    )
+    events = []
+
+    async def one_discovered_task() -> TaskDiscoveryResult:
+        return TaskDiscoveryResult.from_count(1)
+
+    async def claims_one_task(discovery: TaskDiscoveryResult) -> TaskClaimingResult:
+        return TaskClaimingResult(
+            status="claimed",
+            runner_id="hermes-runner",
+            runtime_id="hermes-runtime",
+            task_id=str(task_id),
+            task_title=claimed_task.title,
+            claimed_at=claimed_task.claimed_at.isoformat(),
+            claim_state="claimed",
+        )
+
+    async def execute_task(task):
+        events.append(("execute", str(task.id)))
+        raise RuntimeError("controlled failure")
+
+    async def load_claimed_task(loaded_task_id: str):
+        assert loaded_task_id == str(task_id)
+        return claimed_task
+
+    async def mark_task_doing(task):
+        task.status = TaskStatus.doing.value
+        events.append(("doing", str(task.id)))
+
+    async def persist_failure(task, error):
+        events.append(("failure", str(task.id), error))
+
+    status = RuntimeStatus()
+    loop = RuntimeLoop(
+        status=status,
+        interval_seconds=0.01,
+        min_interval_seconds=0.01,
+        heartbeat_log_every=1000,
+        task_discovery=one_discovered_task,
+        task_claiming=claims_one_task,
+        task_executor=execute_task,
+        claiming_enabled=True,
+        execution_enabled=True,
+    )
+    loop._load_claimed_task = load_claimed_task
+
+    async def no_claimed_task():
+        return None
+
+    loop._load_next_claimed_task = no_claimed_task
+    loop._mark_task_doing = mark_task_doing
+    loop._persist_execution_failure = persist_failure
+
+    await loop._cycle()
+
+    execution = status.execution_metrics()
+    assert events == [
+        ("doing", str(task_id)),
+        ("execute", str(task_id)),
+        ("failure", str(task_id), "controlled failure"),
+    ]
+    assert execution["executions_prepared"] == 1
+    assert execution["executions_started"] == 1
+    assert execution["executions_completed"] == 0
+    assert execution["execution_errors"] == 1
+    assert execution["execution_status"] == "error"
+    assert execution["task_id"] == str(task_id)
+
+
+@pytest.mark.asyncio
+async def test_runtime_loop_blocks_ai_task_when_provider_bridge_disabled():
+    task_id = uuid.uuid4()
+    claimed_task = SimpleNamespace(
+        id=task_id,
+        title="provider canary",
+        status=TaskStatus.claimed.value,
+        phase="canary",
+        payload={"executor": "ai", "prompt": "hello"},
+        retry_count=0,
+        max_retries=1,
+        runner_id="hermes-runner",
+        runtime_id="hermes-runtime",
+        claim_state="claimed",
+        claimed_at=datetime.now(timezone.utc),
+    )
+    events = []
+
+    async def one_discovered_task() -> TaskDiscoveryResult:
+        return TaskDiscoveryResult.from_count(1)
+
+    async def claims_one_task(discovery: TaskDiscoveryResult) -> TaskClaimingResult:
+        return TaskClaimingResult(
+            status="claimed",
+            runner_id="hermes-runner",
+            runtime_id="hermes-runtime",
+            task_id=str(task_id),
+            task_title=claimed_task.title,
+            claimed_at=claimed_task.claimed_at.isoformat(),
+            claim_state="claimed",
+        )
+
+    async def execute_task(task):
+        raise AssertionError("provider task should not execute")
+
+    async def load_claimed_task(loaded_task_id: str):
+        assert loaded_task_id == str(task_id)
+        return claimed_task
+
+    async def persist_blocked(task, reason):
+        events.append(("blocked", str(task.id), reason))
+
+    status = RuntimeStatus()
+    loop = RuntimeLoop(
+        status=status,
+        interval_seconds=0.01,
+        min_interval_seconds=0.01,
+        heartbeat_log_every=1000,
+        task_discovery=one_discovered_task,
+        task_claiming=claims_one_task,
+        task_executor=execute_task,
+        claiming_enabled=True,
+        execution_enabled=True,
+        provider_bridge_enabled=False,
+    )
+    loop._load_claimed_task = load_claimed_task
+
+    async def no_claimed_task():
+        return None
+
+    loop._load_next_claimed_task = no_claimed_task
+    loop._persist_execution_blocked = persist_blocked
+
+    await loop._cycle()
+
+    execution = status.execution_metrics()
+    assert events == [
+        ("blocked", str(task_id), "provider_bridge_disabled_for_ai_task")
+    ]
+    assert execution["executions_prepared"] == 1
+    assert execution["executions_started"] == 0
+    assert execution["executions_rejected"] == 1
+    assert execution["execution_status"] == "rejected"
+    assert execution["task_id"] == str(task_id)
 
 
 @pytest.mark.asyncio
