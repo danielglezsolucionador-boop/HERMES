@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     RUNTIME_LOOP_DEGRADED_ERROR_THRESHOLD: int = 3
     RUNTIME_LOOP_MAX_CONSECUTIVE_ERRORS: int = 5
     RUNTIME_LOOP_SAFETY_EVENT_LIMIT: int = 20
+    TASK_DISCOVERY_LIMIT: int = 10
+    TASK_DISCOVERY_MAX_PAYLOAD_BYTES: int = 4096
+    TASK_DISCOVERY_QUERY_TIMEOUT_SECONDS: float = 3.0
 
     @field_validator('PORT')
     @classmethod

@@ -50,6 +50,23 @@ class RuntimeStatus:
         self.polling_last_duration_ms = 0
         self.polling_errors = 0
         self.polling_last_error: str | None = None
+        self.discovery_started_at: datetime | None = None
+        self.last_discovery_at: datetime | None = None
+        self.discovery_iteration = 0
+        self.discovery_status = "stopped"
+        self.discovery_interval_seconds = 0.0
+        self.discovery_last_duration_ms = 0
+        self.discovery_errors = 0
+        self.discovery_last_error: str | None = None
+        self.discovered_tasks = 0
+        self.discovery_limit = 0
+        self.discovery_max_payload_bytes = 0
+        self.discovery_query_timeout_seconds = 0.0
+        self.discovery_ignored_count = 0
+        self.discovery_ignored_reasons: dict[str, int] = {}
+        self.discovery_filters: dict[str, str] = {}
+        self.discovery_ordering: list[str] = []
+        self.discovery_candidates: list[dict] = []
         self.runtime_safe = True
         self.consecutive_errors = 0
         self.degraded_state = False
@@ -172,6 +189,7 @@ class RuntimeStatus:
         self.runtime_loop_stop_requested = True
         self.runtime_loop_stop_reason = reason
         self.polling_status = "stopped"
+        self.discovery_status = "stopped"
 
     def configure_safety_event_limit(self, limit: int) -> None:
         self.safety_event_limit = max(1, int(limit or 1))
@@ -263,6 +281,54 @@ class RuntimeStatus:
         self.polling_errors += 1
         self.polling_status = "error"
         self.polling_last_error = error or "unknown_polling_error"
+
+    def mark_task_discovery_started(self, interval_seconds: float) -> None:
+        self.discovery_started_at = datetime.now(timezone.utc)
+        self.discovery_status = "active"
+        self.discovery_interval_seconds = interval_seconds
+        self.discovery_last_error = None
+
+    def mark_task_discovery_completed(self, result: dict) -> None:
+        self.last_discovery_at = datetime.now(timezone.utc)
+        self.discovery_iteration += 1
+        self.discovery_status = result.get("status") or "unknown"
+        self.discovered_tasks = max(0, int(result.get("discovered_count") or 0))
+        self.discovery_last_duration_ms = max(0, int(result.get("duration_ms") or 0))
+        self.discovery_limit = max(0, int(result.get("limit") or 0))
+        self.discovery_max_payload_bytes = max(
+            0,
+            int(result.get("max_payload_bytes") or 0),
+        )
+        self.discovery_query_timeout_seconds = max(
+            0.0,
+            float(result.get("query_timeout_seconds") or 0.0),
+        )
+        self.discovery_ignored_count = max(
+            0,
+            int(result.get("ignored_count") or 0),
+        )
+        ignored_reasons = result.get("ignored_reasons") or {}
+        self.discovery_ignored_reasons = {
+            str(reason): max(0, int(count or 0))
+            for reason, count in ignored_reasons.items()
+        }
+        self.discovery_filters = {
+            str(name): str(value)
+            for name, value in (result.get("filters") or {}).items()
+        }
+        self.discovery_ordering = [
+            str(ordering) for ordering in (result.get("ordering") or [])
+        ]
+        self.discovery_candidates = list(result.get("candidates") or [])
+        self.discovery_last_error = None
+
+    def mark_task_discovery_error(self, error: str, duration_ms: int = 0) -> None:
+        self.last_discovery_at = datetime.now(timezone.utc)
+        self.discovery_iteration += 1
+        self.discovery_last_duration_ms = max(0, int(duration_ms or 0))
+        self.discovery_errors += 1
+        self.discovery_status = "error"
+        self.discovery_last_error = error or "unknown_discovery_error"
 
     def ai_metrics(self) -> dict:
         avg_duration = 0
@@ -376,6 +442,30 @@ class RuntimeStatus:
             "polling_last_error": self.polling_last_error,
         }
 
+    def discovery_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "started_at": fmt(self.discovery_started_at),
+            "last_discovery_at": fmt(self.last_discovery_at),
+            "discovery_iteration": self.discovery_iteration,
+            "discovery_status": self.discovery_status,
+            "discovered_tasks": self.discovered_tasks,
+            "discovery_interval_seconds": self.discovery_interval_seconds,
+            "discovery_last_duration_ms": self.discovery_last_duration_ms,
+            "discovery_errors": self.discovery_errors,
+            "discovery_last_error": self.discovery_last_error,
+            "discovery_limit": self.discovery_limit,
+            "discovery_max_payload_bytes": self.discovery_max_payload_bytes,
+            "discovery_query_timeout_seconds": self.discovery_query_timeout_seconds,
+            "discovery_ignored_count": self.discovery_ignored_count,
+            "discovery_ignored_reasons": dict(self.discovery_ignored_reasons),
+            "discovery_filters": dict(self.discovery_filters),
+            "discovery_ordering": list(self.discovery_ordering),
+            "discovery_candidates": list(self.discovery_candidates),
+        }
+
     def to_dict(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -394,6 +484,7 @@ class RuntimeStatus:
             "total_failed": self.total_failed,
             "runtime_loop": self.runtime_loop_metrics(),
             "polling": self.polling_metrics(),
+            "discovery": self.discovery_metrics(),
             "safety": self.safety_metrics(),
         }
         data.update(self.ai_metrics())

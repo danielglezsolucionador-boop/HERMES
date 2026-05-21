@@ -3,6 +3,7 @@ import asyncio
 import pytest
 
 from app.runner.runtime_loop import RuntimeLoop
+from app.runner.task_discovery import TaskDiscoveryResult
 from app.services.runtime_status import RuntimeStatus
 
 
@@ -111,6 +112,35 @@ async def test_runtime_loop_polling_detects_pending_tasks():
     assert polling["tasks_detected"] == 3
     assert polling["polling_status"] == "stopped"
     assert polling["polling_errors"] == 0
+
+
+@pytest.mark.asyncio
+async def test_runtime_loop_records_task_discovery_metrics():
+    async def two_discovered_tasks() -> TaskDiscoveryResult:
+        return TaskDiscoveryResult.from_count(2)
+
+    status = RuntimeStatus()
+    loop = RuntimeLoop(
+        status=status,
+        interval_seconds=0.01,
+        min_interval_seconds=0.01,
+        heartbeat_log_every=1000,
+        task_discovery=two_discovered_tasks,
+    )
+
+    task = asyncio.create_task(loop.run())
+    await asyncio.sleep(0.03)
+    discovery = status.discovery_metrics()
+    polling = status.polling_metrics()
+    loop.request_stop("test_stop")
+    await asyncio.wait_for(task, timeout=1)
+
+    assert discovery["last_discovery_at"] is not None
+    assert discovery["discovery_iteration"] > 0
+    assert discovery["discovery_status"] == "tasks_discovered"
+    assert discovery["discovered_tasks"] == 2
+    assert discovery["discovery_errors"] == 0
+    assert polling["tasks_detected"] == 2
 
 
 @pytest.mark.asyncio

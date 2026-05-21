@@ -14,6 +14,7 @@ from sqlalchemy import func, select
 from app.core.config import settings
 from app.db.engine import AsyncSessionLocal
 from app.models.task import Task
+from app.runner.task_discovery import TaskDiscovery, TaskDiscoveryResult
 from app.schemas.task import TaskStatus
 from app.services.runtime_status import RuntimeStatus, runtime_status
 
@@ -32,6 +33,7 @@ class RuntimeLoop:
         min_interval_seconds: float = settings.RUNTIME_LOOP_MIN_INTERVAL_SECONDS,
         heartbeat_log_every: int = HEARTBEAT_LOG_EVERY,
         pending_task_counter: Callable[[], Awaitable[int]] | None = None,
+        task_discovery: Callable[[], Awaitable[TaskDiscoveryResult]] | None = None,
         degraded_error_threshold: int = settings.RUNTIME_LOOP_DEGRADED_ERROR_THRESHOLD,
         max_consecutive_errors: int = settings.RUNTIME_LOOP_MAX_CONSECUTIVE_ERRORS,
         safety_event_limit: int = settings.RUNTIME_LOOP_SAFETY_EVENT_LIMIT,
@@ -39,7 +41,13 @@ class RuntimeLoop:
         self.status = status
         self.interval_seconds = max(float(interval_seconds), float(min_interval_seconds))
         self.heartbeat_log_every = max(1, int(heartbeat_log_every))
-        self.pending_task_counter = pending_task_counter or self._count_pending_tasks
+        self.pending_task_counter = pending_task_counter
+        if task_discovery is not None:
+            self.task_discovery = task_discovery
+        elif pending_task_counter is not None:
+            self.task_discovery = self._discover_from_pending_counter
+        else:
+            self.task_discovery = TaskDiscovery().discover
         self.degraded_error_threshold = max(1, int(degraded_error_threshold))
         self.max_consecutive_errors = max(
             self.degraded_error_threshold,
@@ -69,8 +77,10 @@ class RuntimeLoop:
             self.status.mark_runtime_loop_paused()
             return "paused"
         poll_started = time.perf_counter()
-        tasks_detected = await self.pending_task_counter()
+        discovery_result = await self.task_discovery()
         poll_duration_ms = int((time.perf_counter() - poll_started) * 1000)
+        self.status.mark_task_discovery_completed(discovery_result.to_dict())
+        tasks_detected = discovery_result.discovered_count
         self.status.mark_polling_completed(
             tasks_detected=tasks_detected,
             duration_ms=poll_duration_ms,
@@ -79,9 +89,20 @@ class RuntimeLoop:
             tasks_detected > 0
             and tasks_detected != self._last_logged_tasks_detected
         ):
-            logger.info("runtime_loop: tasks detected pending=%s", tasks_detected)
+            logger.info(
+                "runtime_loop: task candidates discovered count=%s",
+                tasks_detected,
+            )
             self._last_logged_tasks_detected = tasks_detected
         return "active"
+
+    async def _discover_from_pending_counter(self) -> TaskDiscoveryResult:
+        if self.pending_task_counter is None:
+            return TaskDiscoveryResult.from_count(0)
+        started = time.perf_counter()
+        tasks_detected = await self.pending_task_counter()
+        duration_ms = int((time.perf_counter() - started) * 1000)
+        return TaskDiscoveryResult.from_count(tasks_detected, duration_ms)
 
     async def _count_pending_tasks(self) -> int:
         async with AsyncSessionLocal() as session:
@@ -97,11 +118,13 @@ class RuntimeLoop:
         self.status.configure_safety_event_limit(self.safety_event_limit)
         self.status.mark_runtime_loop_started(self.interval_seconds)
         self.status.mark_polling_started(self.interval_seconds)
+        self.status.mark_task_discovery_started(self.interval_seconds)
         logger.info(
             "runtime_loop: started interval_seconds=%s",
             self.interval_seconds,
         )
         logger.info("runtime_loop: polling started")
+        logger.info("runtime_loop: task discovery started")
 
         stop_reason = "stopped"
         try:
@@ -119,6 +142,7 @@ class RuntimeLoop:
                     poll_duration_ms = int(
                         (time.perf_counter() - cycle_started) * 1000
                     )
+                    self.status.mark_task_discovery_error(str(exc), poll_duration_ms)
                     self.status.mark_polling_error(str(exc), poll_duration_ms)
                     safety = self.status.mark_runtime_loop_error(
                         str(exc),
