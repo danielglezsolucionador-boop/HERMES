@@ -568,6 +568,35 @@ class RuntimeStatus:
         self.self_validation_reasons: list[str] = []
         self.self_validation_last_error: str | None = None
         self.self_validation_metadata: dict = {}
+        self.last_audit_request_at: datetime | None = None
+        self.audit_request_iteration = 0
+        self.audit_request_status = "stopped"
+        self.audit_requests_pending = 0
+        self.audit_requests_blocked = 0
+        self.audit_request_errors = 0
+        self.last_audit_request_id: str | None = None
+        self.audit_request_execution_id: str | None = None
+        self.audit_request_task_id: str | None = None
+        self.audit_request_type: str | None = None
+        self.audit_request_audit_status: str | None = None
+        self.audit_request_validation_status: str | None = None
+        self.audit_request_risk_status: str | None = None
+        self.audit_request_package: dict = {}
+        self.audit_request_package_hash: str | None = None
+        self.audit_request_continuation_frozen = False
+        self.audit_request_continuation_status: str | None = None
+        self.audit_request_traceability_preserved = False
+        self.audit_request_delivery_targets: list[str] = []
+        self.audit_request_delivery_status: str | None = None
+        self.audit_request_lifecycle: list[dict] = []
+        self.audit_request_modified_files: list[str] = []
+        self.audit_request_detected_risks: list[str] = []
+        self.audit_request_provider_context: dict = {}
+        self.audit_request_runtime_state: dict = {}
+        self.audit_request_duration_ms = 0
+        self.audit_request_reasons: list[str] = []
+        self.audit_request_last_error: str | None = None
+        self.audit_request_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -2443,6 +2472,63 @@ class RuntimeStatus:
         else:
             self.self_validation_errors += 1
 
+    def mark_audit_request_result(self, result: dict) -> None:
+        self.last_audit_request_at = datetime.now(timezone.utc)
+        self.audit_request_iteration += 1
+        self.audit_request_status = result.get("status") or "unknown"
+        self.last_audit_request_id = result.get("audit_id")
+        self.audit_request_execution_id = result.get("execution_id")
+        self.audit_request_task_id = result.get("task_id")
+        self.audit_request_type = result.get("audit_type")
+        self.audit_request_audit_status = result.get("audit_status")
+        self.audit_request_validation_status = result.get("validation_status")
+        self.audit_request_risk_status = result.get("risk_status")
+        self.audit_request_package = dict(result.get("audit_package") or {})
+        self.audit_request_package_hash = result.get("audit_package_hash")
+        self.audit_request_continuation_frozen = bool(
+            result.get("continuation_frozen")
+        )
+        self.audit_request_continuation_status = result.get(
+            "continuation_status"
+        )
+        self.audit_request_traceability_preserved = bool(
+            result.get("traceability_preserved")
+        )
+        self.audit_request_delivery_targets = [
+            str(target) for target in (result.get("delivery_targets") or [])
+        ]
+        self.audit_request_delivery_status = result.get("delivery_status")
+        self.audit_request_lifecycle = [
+            dict(entry)
+            for entry in (result.get("audit_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.audit_request_modified_files = [
+            str(path) for path in (result.get("modified_files") or [])
+        ]
+        self.audit_request_detected_risks = [
+            str(risk) for risk in (result.get("detected_risks") or [])
+        ]
+        self.audit_request_provider_context = dict(
+            result.get("provider_context") or {}
+        )
+        self.audit_request_runtime_state = dict(result.get("runtime_state") or {})
+        self.audit_request_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.audit_request_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.audit_request_last_error = result.get("error")
+        self.audit_request_metadata = dict(result.get("metadata") or {})
+        if self.audit_request_status == "pending":
+            self.audit_requests_pending += 1
+        elif self.audit_request_status == "blocked":
+            self.audit_requests_blocked += 1
+        else:
+            self.audit_request_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -3650,6 +3736,46 @@ class RuntimeStatus:
             "metadata": dict(self.self_validation_metadata),
         }
 
+    def audit_request_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_audit_request_at": fmt(self.last_audit_request_at),
+            "audit_request_iteration": self.audit_request_iteration,
+            "audit_request_status": self.audit_request_status,
+            "audit_requests_pending": self.audit_requests_pending,
+            "audit_requests_blocked": self.audit_requests_blocked,
+            "audit_request_errors": self.audit_request_errors,
+            "audit_id": self.last_audit_request_id,
+            "execution_id": self.audit_request_execution_id,
+            "task_id": self.audit_request_task_id,
+            "audit_type": self.audit_request_type,
+            "audit_status": self.audit_request_audit_status,
+            "validation_status": self.audit_request_validation_status,
+            "risk_status": self.audit_request_risk_status,
+            "audit_package": dict(self.audit_request_package),
+            "audit_package_hash": self.audit_request_package_hash,
+            "continuation_frozen": self.audit_request_continuation_frozen,
+            "continuation_status": self.audit_request_continuation_status,
+            "traceability_preserved": (
+                self.audit_request_traceability_preserved
+            ),
+            "delivery_targets": list(self.audit_request_delivery_targets),
+            "delivery_status": self.audit_request_delivery_status,
+            "audit_lifecycle": [
+                dict(entry) for entry in self.audit_request_lifecycle
+            ],
+            "modified_files": list(self.audit_request_modified_files),
+            "detected_risks": list(self.audit_request_detected_risks),
+            "provider_context": dict(self.audit_request_provider_context),
+            "runtime_state": dict(self.audit_request_runtime_state),
+            "duration_ms": self.audit_request_duration_ms,
+            "reasons": list(self.audit_request_reasons),
+            "last_error": self.audit_request_last_error,
+            "metadata": dict(self.audit_request_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -3847,6 +3973,7 @@ class RuntimeStatus:
             "provider_failure_control": self.provider_failure_control_metrics(),
             "provider_routing": self.provider_routing_metrics(),
             "self_validation": self.self_validation_metrics(),
+            "audit_request": self.audit_request_metrics(),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
             "response_safety": self.response_safety_metrics(),
