@@ -171,16 +171,18 @@ def _check_tasks(task_counts: dict) -> dict:
     failed = task_counts.get("failed", 0)
     pending = task_counts.get("pending", 0)
     doing = task_counts.get("doing", 0)
+    claimed = task_counts.get("claimed", 0)
     status = "healthy"
     if failed >= 10:
         status = "unhealthy"
-    elif failed or pending >= 20 or doing >= 20:
+    elif failed or pending >= 20 or doing >= 20 or claimed >= 20:
         status = "degraded"
     return {
         "status": status,
         "total": sum(task_counts.values()),
         "failed": failed,
         "pending": pending,
+        "claimed": claimed,
         "doing": doing,
         "review": task_counts.get("review", 0),
         "done": task_counts.get("done", 0),

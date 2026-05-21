@@ -36,6 +36,7 @@ async def initialize_database() -> None:
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await _ensure_task_claiming_columns(conn)
         existing_tables = await conn.run_sync(_table_names)
 
     missing_tables = sorted(REQUIRED_TABLES - existing_tables)
@@ -68,3 +69,25 @@ def _run_alembic_upgrade() -> None:
 
 def _alembic_config_url() -> str:
     return normalize_database_url(settings.DATABASE_URL).replace("%", "%%")
+
+
+async def _ensure_task_claiming_columns(conn) -> None:
+    await conn.execute(text("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS runner_id VARCHAR(100)"))
+    await conn.execute(text("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS runtime_id VARCHAR(100)"))
+    await conn.execute(text("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMP WITH TIME ZONE"))
+    await conn.execute(text("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS claim_state VARCHAR(50)"))
+    await conn.execute(
+        text("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS claim_attempts INTEGER NOT NULL DEFAULT 0")
+    )
+    await conn.execute(
+        text(
+            "CREATE INDEX IF NOT EXISTS ix_tasks_claiming_status_claimed_at "
+            "ON tasks (status, claimed_at)"
+        )
+    )
+    await conn.execute(
+        text(
+            "CREATE INDEX IF NOT EXISTS ix_tasks_claiming_runtime_state "
+            "ON tasks (runtime_id, claim_state)"
+        )
+    )

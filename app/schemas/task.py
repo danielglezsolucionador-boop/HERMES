@@ -7,6 +7,7 @@ from datetime import datetime
 
 class TaskStatus(str, Enum):
     pending = "pending"
+    claimed = "claimed"
     doing = "doing"
     review = "review"
     done = "done"
@@ -47,6 +48,11 @@ class TaskRead(BaseModel):
     last_retry_at: datetime | None = None
     retry_count: int = 0
     max_retries: int = 3
+    runner_id: str | None = None
+    runtime_id: str | None = None
+    claimed_at: datetime | None = None
+    claim_state: str | None = None
+    claim_attempts: int = 0
     created_at: datetime
     updated_at: datetime
 

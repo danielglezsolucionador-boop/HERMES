@@ -67,6 +67,30 @@ class RuntimeStatus:
         self.discovery_filters: dict[str, str] = {}
         self.discovery_ordering: list[str] = []
         self.discovery_candidates: list[dict] = []
+        self.claiming_started_at: datetime | None = None
+        self.last_claiming_at: datetime | None = None
+        self.claiming_iteration = 0
+        self.claiming_enabled = False
+        self.claiming_status = "stopped"
+        self.claiming_interval_seconds = 0.0
+        self.claiming_last_duration_ms = 0
+        self.claiming_errors = 0
+        self.claiming_last_error: str | None = None
+        self.claims_attempted = 0
+        self.claims_succeeded = 0
+        self.claims_conflicted = 0
+        self.claims_rejected = 0
+        self.active_claims = 0
+        self.stale_claims = 0
+        self.max_concurrent_claims = 0
+        self.max_attempts_per_cycle = 0
+        self.max_task_attempts = 0
+        self.min_claim_interval_seconds = 0.0
+        self.stale_claim_after_seconds = 0
+        self.max_stale_claims = 0
+        self.claiming_runner_id: str | None = None
+        self.claiming_runtime_id: str | None = None
+        self.last_claimed_task: dict | None = None
         self.runtime_safe = True
         self.consecutive_errors = 0
         self.degraded_state = False
@@ -190,6 +214,7 @@ class RuntimeStatus:
         self.runtime_loop_stop_reason = reason
         self.polling_status = "stopped"
         self.discovery_status = "stopped"
+        self.claiming_status = "stopped"
 
     def configure_safety_event_limit(self, limit: int) -> None:
         self.safety_event_limit = max(1, int(limit or 1))
@@ -330,6 +355,65 @@ class RuntimeStatus:
         self.discovery_status = "error"
         self.discovery_last_error = error or "unknown_discovery_error"
 
+    def mark_task_claiming_started(
+        self,
+        enabled: bool,
+        interval_seconds: float,
+    ) -> None:
+        self.claiming_started_at = datetime.now(timezone.utc)
+        self.claiming_enabled = bool(enabled)
+        self.claiming_status = "active" if enabled else "disabled"
+        self.claiming_interval_seconds = interval_seconds
+        self.claiming_last_error = None
+
+    def mark_task_claiming_completed(self, result: dict) -> None:
+        self.last_claiming_at = datetime.now(timezone.utc)
+        self.claiming_iteration += 1
+        self.claiming_status = result.get("status") or "unknown"
+        self.claiming_last_duration_ms = max(0, int(result.get("duration_ms") or 0))
+        self.claims_attempted += max(0, int(result.get("attempted_count") or 0))
+        self.claims_succeeded += max(0, int(result.get("claimed_count") or 0))
+        self.claims_conflicted += max(0, int(result.get("conflict_count") or 0))
+        self.claims_rejected += max(0, int(result.get("rejected_count") or 0))
+        self.active_claims = max(0, int(result.get("active_claims") or 0))
+        self.stale_claims = max(0, int(result.get("stale_claims") or 0))
+        self.max_concurrent_claims = max(
+            0,
+            int(result.get("max_concurrent_claims") or 0),
+        )
+        self.max_attempts_per_cycle = max(
+            0,
+            int(result.get("max_attempts_per_cycle") or 0),
+        )
+        self.max_task_attempts = max(0, int(result.get("max_task_attempts") or 0))
+        self.min_claim_interval_seconds = max(
+            0.0,
+            float(result.get("min_interval_seconds") or 0.0),
+        )
+        self.stale_claim_after_seconds = max(
+            0,
+            int(result.get("stale_after_seconds") or 0),
+        )
+        self.max_stale_claims = max(0, int(result.get("max_stale_claims") or 0))
+        self.claiming_runner_id = result.get("runner_id")
+        self.claiming_runtime_id = result.get("runtime_id")
+        if result.get("task_id"):
+            self.last_claimed_task = {
+                "id": result.get("task_id"),
+                "title": result.get("task_title"),
+                "claimed_at": result.get("claimed_at"),
+                "claim_state": result.get("claim_state"),
+            }
+        self.claiming_last_error = result.get("error")
+
+    def mark_task_claiming_error(self, error: str, duration_ms: int = 0) -> None:
+        self.last_claiming_at = datetime.now(timezone.utc)
+        self.claiming_iteration += 1
+        self.claiming_last_duration_ms = max(0, int(duration_ms or 0))
+        self.claiming_errors += 1
+        self.claiming_status = "error"
+        self.claiming_last_error = error or "unknown_claiming_error"
+
     def ai_metrics(self) -> dict:
         avg_duration = 0
         avg_provider = 0
@@ -466,6 +550,37 @@ class RuntimeStatus:
             "discovery_candidates": list(self.discovery_candidates),
         }
 
+    def claiming_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "started_at": fmt(self.claiming_started_at),
+            "last_claiming_at": fmt(self.last_claiming_at),
+            "claiming_iteration": self.claiming_iteration,
+            "claiming_enabled": self.claiming_enabled,
+            "claiming_status": self.claiming_status,
+            "claiming_interval_seconds": self.claiming_interval_seconds,
+            "claiming_last_duration_ms": self.claiming_last_duration_ms,
+            "claiming_errors": self.claiming_errors,
+            "claiming_last_error": self.claiming_last_error,
+            "claims_attempted": self.claims_attempted,
+            "claims_succeeded": self.claims_succeeded,
+            "claims_conflicted": self.claims_conflicted,
+            "claims_rejected": self.claims_rejected,
+            "active_claims": self.active_claims,
+            "stale_claims": self.stale_claims,
+            "max_concurrent_claims": self.max_concurrent_claims,
+            "max_attempts_per_cycle": self.max_attempts_per_cycle,
+            "max_task_attempts": self.max_task_attempts,
+            "min_claim_interval_seconds": self.min_claim_interval_seconds,
+            "stale_claim_after_seconds": self.stale_claim_after_seconds,
+            "max_stale_claims": self.max_stale_claims,
+            "runner_id": self.claiming_runner_id,
+            "runtime_id": self.claiming_runtime_id,
+            "last_claimed_task": self.last_claimed_task,
+        }
+
     def to_dict(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -485,6 +600,7 @@ class RuntimeStatus:
             "runtime_loop": self.runtime_loop_metrics(),
             "polling": self.polling_metrics(),
             "discovery": self.discovery_metrics(),
+            "claiming": self.claiming_metrics(),
             "safety": self.safety_metrics(),
         }
         data.update(self.ai_metrics())

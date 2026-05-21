@@ -47,6 +47,15 @@ class Settings(BaseSettings):
     TASK_DISCOVERY_LIMIT: int = 10
     TASK_DISCOVERY_MAX_PAYLOAD_BYTES: int = 4096
     TASK_DISCOVERY_QUERY_TIMEOUT_SECONDS: float = 3.0
+    TASK_CLAIMING_ENABLED: bool = False
+    TASK_CLAIMING_MAX_CONCURRENT_CLAIMS: int = 1
+    TASK_CLAIMING_MAX_ATTEMPTS_PER_CYCLE: int = 1
+    TASK_CLAIMING_MAX_TASK_ATTEMPTS: int = 3
+    TASK_CLAIMING_MIN_INTERVAL_SECONDS: float = 60.0
+    TASK_CLAIMING_STALE_AFTER_SECONDS: int = 900
+    TASK_CLAIMING_MAX_STALE_CLAIMS: int = 5
+    RUNNER_ID: str = "hermes-runner"
+    RUNTIME_ID: str = "hermes-runtime"
 
     @field_validator('PORT')
     @classmethod

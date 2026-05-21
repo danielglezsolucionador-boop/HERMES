@@ -22,3 +22,8 @@ class Task(Base, TimestampMixin):
     last_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False, server_default="0")
     max_retries: Mapped[int] = mapped_column(Integer, default=3, nullable=False, server_default="3")
+    runner_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    runtime_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    claim_state: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    claim_attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False, server_default="0")

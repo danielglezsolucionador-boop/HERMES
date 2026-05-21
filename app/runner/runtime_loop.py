@@ -1,8 +1,9 @@
 """
 Runtime loop foundation for Hermes.
 
-This loop only maintains runtime heartbeat and lifecycle state.
-It does not pick up, lock, execute, or retry tasks.
+This loop maintains runtime heartbeat and lifecycle state.
+Task claiming is controlled and disabled by default. It never executes
+or retries tasks.
 """
 import asyncio
 import logging
@@ -14,6 +15,7 @@ from sqlalchemy import func, select
 from app.core.config import settings
 from app.db.engine import AsyncSessionLocal
 from app.models.task import Task
+from app.runner.task_claiming import TaskClaiming, TaskClaimingResult
 from app.runner.task_discovery import TaskDiscovery, TaskDiscoveryResult
 from app.schemas.task import TaskStatus
 from app.services.runtime_status import RuntimeStatus, runtime_status
@@ -34,6 +36,8 @@ class RuntimeLoop:
         heartbeat_log_every: int = HEARTBEAT_LOG_EVERY,
         pending_task_counter: Callable[[], Awaitable[int]] | None = None,
         task_discovery: Callable[[], Awaitable[TaskDiscoveryResult]] | None = None,
+        task_claiming: Callable[[TaskDiscoveryResult], Awaitable[TaskClaimingResult]] | None = None,
+        claiming_enabled: bool = settings.TASK_CLAIMING_ENABLED,
         degraded_error_threshold: int = settings.RUNTIME_LOOP_DEGRADED_ERROR_THRESHOLD,
         max_consecutive_errors: int = settings.RUNTIME_LOOP_MAX_CONSECUTIVE_ERRORS,
         safety_event_limit: int = settings.RUNTIME_LOOP_SAFETY_EVENT_LIMIT,
@@ -48,6 +52,8 @@ class RuntimeLoop:
             self.task_discovery = self._discover_from_pending_counter
         else:
             self.task_discovery = TaskDiscovery().discover
+        self.claiming_enabled = bool(claiming_enabled)
+        self.task_claiming = task_claiming or TaskClaiming().claim_next
         self.degraded_error_threshold = max(1, int(degraded_error_threshold))
         self.max_consecutive_errors = max(
             self.degraded_error_threshold,
@@ -85,6 +91,9 @@ class RuntimeLoop:
             tasks_detected=tasks_detected,
             duration_ms=poll_duration_ms,
         )
+        if self.claiming_enabled:
+            claiming_result = await self.task_claiming(discovery_result)
+            self.status.mark_task_claiming_completed(claiming_result.to_dict())
         if (
             tasks_detected > 0
             and tasks_detected != self._last_logged_tasks_detected
@@ -119,12 +128,20 @@ class RuntimeLoop:
         self.status.mark_runtime_loop_started(self.interval_seconds)
         self.status.mark_polling_started(self.interval_seconds)
         self.status.mark_task_discovery_started(self.interval_seconds)
+        self.status.mark_task_claiming_started(
+            enabled=self.claiming_enabled,
+            interval_seconds=self.interval_seconds,
+        )
         logger.info(
             "runtime_loop: started interval_seconds=%s",
             self.interval_seconds,
         )
         logger.info("runtime_loop: polling started")
         logger.info("runtime_loop: task discovery started")
+        logger.info(
+            "runtime_loop: task claiming %s",
+            "enabled" if self.claiming_enabled else "disabled",
+        )
 
         stop_reason = "stopped"
         try:
@@ -143,6 +160,8 @@ class RuntimeLoop:
                         (time.perf_counter() - cycle_started) * 1000
                     )
                     self.status.mark_task_discovery_error(str(exc), poll_duration_ms)
+                    if self.claiming_enabled:
+                        self.status.mark_task_claiming_error(str(exc), poll_duration_ms)
                     self.status.mark_polling_error(str(exc), poll_duration_ms)
                     safety = self.status.mark_runtime_loop_error(
                         str(exc),

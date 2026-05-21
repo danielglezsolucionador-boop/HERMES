@@ -3,6 +3,7 @@ import asyncio
 import pytest
 
 from app.runner.runtime_loop import RuntimeLoop
+from app.runner.task_claiming import TaskClaimingResult
 from app.runner.task_discovery import TaskDiscoveryResult
 from app.services.runtime_status import RuntimeStatus
 
@@ -141,6 +142,52 @@ async def test_runtime_loop_records_task_discovery_metrics():
     assert discovery["discovered_tasks"] == 2
     assert discovery["discovery_errors"] == 0
     assert polling["tasks_detected"] == 2
+
+
+@pytest.mark.asyncio
+async def test_runtime_loop_records_task_claiming_metrics_when_enabled():
+    async def two_discovered_tasks() -> TaskDiscoveryResult:
+        return TaskDiscoveryResult.from_count(2)
+
+    async def claims_one_task(discovery: TaskDiscoveryResult) -> TaskClaimingResult:
+        return TaskClaimingResult(
+            status="claimed",
+            runner_id="runner-test",
+            runtime_id="runtime-test",
+            attempted_count=1,
+            claimed_count=1,
+            active_claims=1,
+            max_concurrent_claims=1,
+            max_attempts_per_cycle=1,
+            task_id="task-1",
+            task_title="test task",
+            claimed_at="2026-05-21T00:00:00+00:00",
+            claim_state="claimed",
+        )
+
+    status = RuntimeStatus()
+    loop = RuntimeLoop(
+        status=status,
+        interval_seconds=0.01,
+        min_interval_seconds=0.01,
+        heartbeat_log_every=1000,
+        task_discovery=two_discovered_tasks,
+        task_claiming=claims_one_task,
+        claiming_enabled=True,
+    )
+
+    task = asyncio.create_task(loop.run())
+    await asyncio.sleep(0.03)
+    claiming = status.claiming_metrics()
+    loop.request_stop("test_stop")
+    await asyncio.wait_for(task, timeout=1)
+
+    assert claiming["claiming_enabled"] is True
+    assert claiming["claiming_status"] == "claimed"
+    assert claiming["claims_attempted"] > 0
+    assert claiming["claims_succeeded"] > 0
+    assert claiming["active_claims"] == 1
+    assert claiming["last_claimed_task"]["id"] == "task-1"
 
 
 @pytest.mark.asyncio

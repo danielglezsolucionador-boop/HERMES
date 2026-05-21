@@ -253,6 +253,8 @@ def _build_priorities_and_risks(counts: dict, runner: dict) -> tuple[list[str], 
     if counts.get("doing", 0) and runner_status == "offline":
         priorities.append(f"Auditar {counts['doing']} task(s) en doing con runner offline.")
         risks.append("Runner offline con tasks en doing puede indicar ejecucion detenida.")
+    if counts.get("claimed", 0):
+        priorities.append(f"Monitorear {counts['claimed']} task(s) claimed sin ejecucion activa.")
     if counts.get("pending", 0):
         priorities.append(f"Procesar {counts['pending']} task(s) pendientes.")
     if runner.get("ai_failed_requests", 0):
@@ -271,7 +273,7 @@ def _format_operational_summary(snapshot: dict) -> str:
         "Resumen operacional de hoy",
         (
             f"Tasks totales: {sum(counts.values())} | "
-            f"pending {counts['pending']} | doing {counts['doing']} | "
+            f"pending {counts['pending']} | claimed {counts.get('claimed', 0)} | doing {counts['doing']} | "
             f"review {counts['review']} | done {counts['done']} | failed {counts['failed']}"
         ),
         (
@@ -301,10 +303,14 @@ def _format_failed_summary(snapshot: dict) -> str:
 
 def _format_backlog_summary(snapshot: dict) -> str:
     counts = snapshot["counts"]
-    backlog = counts["pending"] + counts["doing"]
+    claimed = counts.get("claimed", 0)
+    backlog = counts["pending"] + claimed + counts["doing"]
     lines = [
         "Backlog operacional",
-        f"Total backlog: {backlog} | pending {counts['pending']} | doing {counts['doing']}",
+        (
+            f"Total backlog: {backlog} | pending {counts['pending']} | "
+            f"claimed {claimed} | doing {counts['doing']}"
+        ),
         _runtime_line(snapshot),
     ]
     lines.extend(_task_section("Pendientes mas antiguas", snapshot["pending_tasks"]))
@@ -369,7 +375,7 @@ def _format_delayed_summary(snapshot: dict) -> str:
         "No hay campo due_at; no invento vencimientos.",
         (
             f"Senal real usada: runner {runner_status}, "
-            f"doing {counts['doing']}, pending {counts['pending']}."
+            f"doing {counts['doing']}, claimed {counts.get('claimed', 0)}, pending {counts['pending']}."
         ),
     ]
     lines.extend(_task_section("En doing mas antiguas", snapshot["doing_tasks"]))

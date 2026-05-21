@@ -101,6 +101,12 @@ def build_operational_risks(
             _risk("medium", "tasks", "task backlog high", {"pending": pending})
         )
 
+    claimed = task_counts.get("claimed", 0)
+    if claimed >= 20:
+        risks.append(
+            _risk("medium", "tasks", "claimed task backlog high", {"claimed": claimed})
+        )
+
     return risks
 
 
