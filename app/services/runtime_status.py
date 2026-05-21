@@ -2075,6 +2075,44 @@ class RuntimeStatus:
         self.restart_persistence_reasons: list[str] = []
         self.restart_persistence_last_error: str | None = None
         self.restart_persistence_metadata: dict = {}
+        self.last_long_running_validation_at: datetime | None = None
+        self.long_running_validation_iteration = 0
+        self.long_running_validation_status = "stopped"
+        self.long_running_validations_validated = 0
+        self.long_running_validations_blocked = 0
+        self.long_running_validation_errors = 0
+        self.long_running_validation_id: str | None = None
+        self.long_running_validation_workflow_id: str | None = None
+        self.long_running_runtime_duration_seconds = 0.0
+        self.long_running_runtime_status: str | None = None
+        self.long_running_continuation_status: str | None = None
+        self.long_running_governance_status: str | None = None
+        self.long_running_recovery_status: str | None = None
+        self.long_running_execution_cycles = 0
+        self.long_running_successful_cycles = 0
+        self.long_running_failed_cycles = 0
+        self.long_running_runtime_duration_valid = False
+        self.long_running_runtime_integrity_valid = False
+        self.long_running_execution_continuity_valid = False
+        self.long_running_performance_stability_valid = False
+        self.long_running_memory_consistency_valid = False
+        self.long_running_governance_stability_valid = False
+        self.long_running_recovery_status_valid = False
+        self.long_running_operational_resilience_valid = False
+        self.long_running_safe = False
+        self.long_running_continuation_allowed = False
+        self.long_running_degradation_detected = False
+        self.long_running_traceability_preserved = False
+        self.long_running_governance_consistency_preserved = False
+        self.long_running_failure_conditions: list[str] = []
+        self.long_running_bottlenecks: list[str] = []
+        self.long_running_validation_report: dict = {}
+        self.long_running_visibility_payload: dict = {}
+        self.long_running_validation_lifecycle: list[dict] = []
+        self.long_running_validation_duration_ms = 0
+        self.long_running_validation_reasons: list[str] = []
+        self.long_running_validation_last_error: str | None = None
+        self.long_running_validation_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -7669,6 +7707,107 @@ class RuntimeStatus:
         else:
             self.restart_persistence_errors += 1
 
+    def mark_long_running_validation_result(self, result: dict) -> None:
+        self.last_long_running_validation_at = datetime.now(timezone.utc)
+        self.long_running_validation_iteration += 1
+        self.long_running_validation_status = result.get("status") or "unknown"
+        self.long_running_validation_id = result.get("validation_id")
+        self.long_running_validation_workflow_id = result.get("workflow_id")
+        self.long_running_runtime_duration_seconds = max(
+            0.0,
+            float(result.get("runtime_duration_seconds") or 0.0),
+        )
+        self.long_running_runtime_status = result.get("runtime_status")
+        self.long_running_continuation_status = result.get(
+            "continuation_status"
+        )
+        self.long_running_governance_status = result.get("governance_status")
+        self.long_running_recovery_status = result.get("recovery_status")
+        self.long_running_execution_cycles = max(
+            0,
+            int(result.get("execution_cycles") or 0),
+        )
+        self.long_running_successful_cycles = max(
+            0,
+            int(result.get("successful_cycles") or 0),
+        )
+        self.long_running_failed_cycles = max(
+            0,
+            int(result.get("failed_cycles") or 0),
+        )
+        self.long_running_runtime_duration_valid = bool(
+            result.get("runtime_duration_valid")
+        )
+        self.long_running_runtime_integrity_valid = bool(
+            result.get("runtime_integrity_valid")
+        )
+        self.long_running_execution_continuity_valid = bool(
+            result.get("execution_continuity_valid")
+        )
+        self.long_running_performance_stability_valid = bool(
+            result.get("performance_stability_valid")
+        )
+        self.long_running_memory_consistency_valid = bool(
+            result.get("memory_consistency_valid")
+        )
+        self.long_running_governance_stability_valid = bool(
+            result.get("governance_stability_valid")
+        )
+        self.long_running_recovery_status_valid = bool(
+            result.get("recovery_status_valid")
+        )
+        self.long_running_operational_resilience_valid = bool(
+            result.get("operational_resilience_valid")
+        )
+        self.long_running_safe = bool(result.get("long_running_safe"))
+        self.long_running_continuation_allowed = bool(
+            result.get("continuation_allowed")
+        )
+        self.long_running_degradation_detected = bool(
+            result.get("degradation_detected")
+        )
+        self.long_running_traceability_preserved = bool(
+            result.get("workflow_traceability_preserved")
+        )
+        self.long_running_governance_consistency_preserved = bool(
+            result.get("governance_consistency_preserved")
+        )
+        self.long_running_failure_conditions = [
+            str(item) for item in (result.get("failure_conditions") or [])
+        ]
+        self.long_running_bottlenecks = [
+            str(item) for item in (result.get("bottlenecks") or [])
+        ]
+        self.long_running_validation_report = dict(
+            result.get("validation_report") or {}
+        )
+        self.long_running_visibility_payload = dict(
+            result.get("human_visibility_payload") or {}
+        )
+        self.long_running_validation_lifecycle = [
+            dict(entry)
+            for entry in (result.get("validation_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.long_running_validation_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.long_running_validation_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.long_running_validation_last_error = result.get("error")
+        self.long_running_validation_metadata = dict(
+            result.get("metadata") or {}
+        )
+
+        if self.long_running_validation_status == "validated":
+            self.long_running_validations_validated += 1
+        elif self.long_running_validation_status == "blocked":
+            self.long_running_validations_blocked += 1
+        else:
+            self.long_running_validation_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -11858,6 +11997,92 @@ class RuntimeStatus:
             "metadata": dict(self.restart_persistence_metadata),
         }
 
+    def long_running_validation_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_long_running_validation_at": fmt(
+                self.last_long_running_validation_at
+            ),
+            "long_running_validation_iteration": (
+                self.long_running_validation_iteration
+            ),
+            "long_running_validation_status": (
+                self.long_running_validation_status
+            ),
+            "long_running_validations_validated": (
+                self.long_running_validations_validated
+            ),
+            "long_running_validations_blocked": (
+                self.long_running_validations_blocked
+            ),
+            "long_running_validation_errors": (
+                self.long_running_validation_errors
+            ),
+            "validation_id": self.long_running_validation_id,
+            "workflow_id": self.long_running_validation_workflow_id,
+            "runtime_duration_seconds": (
+                self.long_running_runtime_duration_seconds
+            ),
+            "runtime_status": self.long_running_runtime_status,
+            "continuation_status": self.long_running_continuation_status,
+            "governance_status": self.long_running_governance_status,
+            "recovery_status": self.long_running_recovery_status,
+            "execution_cycles": self.long_running_execution_cycles,
+            "successful_cycles": self.long_running_successful_cycles,
+            "failed_cycles": self.long_running_failed_cycles,
+            "runtime_duration_valid": (
+                self.long_running_runtime_duration_valid
+            ),
+            "runtime_integrity_valid": (
+                self.long_running_runtime_integrity_valid
+            ),
+            "execution_continuity_valid": (
+                self.long_running_execution_continuity_valid
+            ),
+            "performance_stability_valid": (
+                self.long_running_performance_stability_valid
+            ),
+            "memory_consistency_valid": (
+                self.long_running_memory_consistency_valid
+            ),
+            "governance_stability_valid": (
+                self.long_running_governance_stability_valid
+            ),
+            "recovery_status_valid": (
+                self.long_running_recovery_status_valid
+            ),
+            "operational_resilience_valid": (
+                self.long_running_operational_resilience_valid
+            ),
+            "long_running_safe": self.long_running_safe,
+            "continuation_allowed": self.long_running_continuation_allowed,
+            "degradation_detected": self.long_running_degradation_detected,
+            "workflow_traceability_preserved": (
+                self.long_running_traceability_preserved
+            ),
+            "governance_consistency_preserved": (
+                self.long_running_governance_consistency_preserved
+            ),
+            "failure_conditions": list(
+                self.long_running_failure_conditions
+            ),
+            "bottlenecks": list(self.long_running_bottlenecks),
+            "validation_report": dict(self.long_running_validation_report),
+            "human_visibility_payload": dict(
+                self.long_running_visibility_payload
+            ),
+            "validation_lifecycle": [
+                dict(entry)
+                for entry in self.long_running_validation_lifecycle
+            ],
+            "duration_ms": self.long_running_validation_duration_ms,
+            "reasons": list(self.long_running_validation_reasons),
+            "last_error": self.long_running_validation_last_error,
+            "metadata": dict(self.long_running_validation_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -12126,6 +12351,9 @@ class RuntimeStatus:
             "stress_tests": self.stress_tests_metrics(),
             "failure_recovery": self.failure_recovery_metrics(),
             "restart_persistence": self.restart_persistence_metrics(),
+            "long_running_validation": (
+                self.long_running_validation_metrics()
+            ),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
             "response_safety": self.response_safety_metrics(),
