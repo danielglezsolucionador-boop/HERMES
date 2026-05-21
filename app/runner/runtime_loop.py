@@ -23,6 +23,10 @@ from app.runner.orchestration_foundation import (
     OrchestrationResult,
     OrchestrationRuntime,
 )
+from app.runner.orchestration_safety import (
+    OrchestrationSafety,
+    OrchestrationSafetyResult,
+)
 from app.runner.response_ingestion import ResponseIngestionRuntime
 from app.runner.response_safety import ResponseSafetyRuntime
 from app.runner.response_validation import ResponseValidationRuntime
@@ -56,6 +60,10 @@ class RuntimeLoop:
         timeout_control: Callable[[], Awaitable[TimeoutControlResult]] | None = None,
         retry_control: Callable[[], Awaitable[RetryControlResult]] | None = None,
         orchestration: Callable[[], Awaitable[OrchestrationResult]] | None = None,
+        orchestration_safety: (
+            Callable[[OrchestrationResult | None], Awaitable[OrchestrationSafetyResult]]
+            | None
+        ) = None,
         claiming_enabled: bool = settings.TASK_CLAIMING_ENABLED,
         pickup_safety_enabled: bool = settings.TASK_PICKUP_SAFETY_ENABLED,
         execution_enabled: bool = settings.TASK_EXECUTION_ENABLED,
@@ -63,6 +71,7 @@ class RuntimeLoop:
         timeout_control_enabled: bool = settings.TIMEOUT_CONTROL_ENABLED,
         retry_control_enabled: bool = settings.RETRY_CONTROL_ENABLED,
         orchestration_enabled: bool = settings.ORCHESTRATION_ENABLED,
+        orchestration_safety_enabled: bool = settings.ORCHESTRATION_SAFETY_ENABLED,
         provider_bridge_enabled: bool = settings.PROVIDER_BRIDGE_ENABLED,
         response_ingestion_enabled: bool = settings.RESPONSE_INGESTION_ENABLED,
         response_validation_enabled: bool = settings.RESPONSE_VALIDATION_ENABLED,
@@ -104,6 +113,11 @@ class RuntimeLoop:
         self.orchestration_enabled = bool(orchestration_enabled)
         self.orchestration_runtime = OrchestrationRuntime()
         self.orchestration = orchestration or self._inspect_orchestration
+        self.orchestration_safety_enabled = bool(orchestration_safety_enabled)
+        self.orchestration_safety_runtime = OrchestrationSafety()
+        self.orchestration_safety = (
+            orchestration_safety or self._inspect_orchestration_safety
+        )
         self.provider_bridge_enabled = bool(provider_bridge_enabled)
         self.response_ingestion_enabled = bool(response_ingestion_enabled)
         self.response_ingestion = ResponseIngestionRuntime()
@@ -178,9 +192,17 @@ class RuntimeLoop:
         if self.retry_control_enabled:
             retry_control_result = await self.retry_control()
             self.status.mark_retry_control_result(retry_control_result.to_dict())
+        orchestration_result: OrchestrationResult | None = None
         if self.orchestration_enabled:
             orchestration_result = await self.orchestration()
             self.status.mark_orchestration_result(orchestration_result.to_dict())
+        if self.orchestration_safety_enabled:
+            orchestration_safety_result = await self.orchestration_safety(
+                orchestration_result
+            )
+            self.status.mark_orchestration_safety_completed(
+                orchestration_safety_result.to_dict()
+            )
         if (
             tasks_detected > 0
             and tasks_detected != self._last_logged_tasks_detected
@@ -234,6 +256,16 @@ class RuntimeLoop:
         return await self.orchestration_runtime.inspect(
             runtime_active=not self._stop_requested,
             coordination_permitted=True,
+        )
+
+    async def _inspect_orchestration_safety(
+        self,
+        orchestration_result: OrchestrationResult | None = None,
+    ) -> OrchestrationSafetyResult:
+        return await self.orchestration_safety_runtime.inspect(
+            orchestration_result=orchestration_result,
+            orchestration_visibility=self.orchestration_runtime.visibility(),
+            runtime_active=not self._stop_requested,
         )
 
     async def _count_pending_tasks(self) -> int:
@@ -309,6 +341,13 @@ class RuntimeLoop:
             max_dependency_chain=settings.ORCHESTRATION_MAX_DEPENDENCY_CHAIN,
             max_orchestration_duration_ms=settings.ORCHESTRATION_MAX_DURATION_MS,
             max_orchestration_load=settings.ORCHESTRATION_MAX_RUNTIME_LOAD,
+            max_coordination_overhead_ms=settings.ORCHESTRATION_MAX_OVERHEAD_MS,
+        )
+        self.status.mark_orchestration_safety_started(
+            enabled=self.orchestration_safety_enabled,
+            interval_seconds=self.interval_seconds,
+            max_retries=settings.ORCHESTRATION_SAFETY_MAX_RETRIES,
+            max_orchestration_duration_ms=settings.ORCHESTRATION_MAX_DURATION_MS,
             max_coordination_overhead_ms=settings.ORCHESTRATION_MAX_OVERHEAD_MS,
         )
         self.status.mark_provider_bridge_started(
@@ -394,6 +433,10 @@ class RuntimeLoop:
             "enabled" if self.orchestration_enabled else "disabled",
         )
         logger.info(
+            "runtime_loop: orchestration safety %s",
+            "enabled" if self.orchestration_safety_enabled else "disabled",
+        )
+        logger.info(
             "runtime_loop: provider bridge %s",
             "enabled" if self.provider_bridge_enabled else "disabled",
         )
@@ -450,6 +493,11 @@ class RuntimeLoop:
                         )
                     if self.orchestration_enabled:
                         self.status.mark_orchestration_error(
+                            str(exc),
+                            poll_duration_ms,
+                        )
+                    if self.orchestration_safety_enabled:
+                        self.status.mark_orchestration_safety_error(
                             str(exc),
                             poll_duration_ms,
                         )

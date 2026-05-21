@@ -41,6 +41,9 @@ async def runtime_status(session: AsyncSession = Depends(get_session)):
         timeout_control_metrics = runner_runtime_status.timeout_control_metrics()
         retry_control_metrics = runner_runtime_status.retry_control_metrics()
         orchestration_metrics = runner_runtime_status.orchestration_metrics()
+        orchestration_safety_metrics = (
+            runner_runtime_status.orchestration_safety_metrics()
+        )
         provider_bridge_metrics = runner_runtime_status.provider_bridge_metrics()
         response_ingestion_metrics = runner_runtime_status.response_ingestion_metrics()
         response_validation_metrics = runner_runtime_status.response_validation_metrics()
@@ -72,6 +75,7 @@ async def runtime_status(session: AsyncSession = Depends(get_session)):
             "timeout_control": timeout_control_metrics,
             "retry_control": retry_control_metrics,
             "orchestration": orchestration_metrics,
+            "orchestration_safety": orchestration_safety_metrics,
             "provider_bridge": provider_bridge_metrics,
             "response_ingestion": response_ingestion_metrics,
             "response_validation": response_validation_metrics,

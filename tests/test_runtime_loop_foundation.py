@@ -399,6 +399,7 @@ async def test_runtime_loop_initializes_orchestration_metrics():
     task = asyncio.create_task(loop.run())
     await asyncio.sleep(0.03)
     orchestration = status.orchestration_metrics()
+    orchestration_safety = status.orchestration_safety_metrics()
     loop.request_stop("test_stop")
     await asyncio.wait_for(task, timeout=1)
 
@@ -414,6 +415,13 @@ async def test_runtime_loop_initializes_orchestration_metrics():
     assert orchestration["max_active_orchestrations"] == 1
     assert orchestration["max_dependency_chain"] == 10
     assert orchestration["runtime_protected"] is True
+    assert orchestration_safety["orchestration_safety_enabled"] is True
+    assert orchestration_safety["orchestration_safety_status"] == "safe"
+    assert orchestration_safety["safety_state"] == "safe"
+    assert orchestration_safety["allows_orchestration"] is True
+    assert orchestration_safety["runtime_protected"] is True
+    assert orchestration_safety["runaway_detected"] is False
+    assert orchestration_safety["timeout_detected"] is False
 
 
 @pytest.mark.asyncio

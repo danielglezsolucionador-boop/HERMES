@@ -108,6 +108,8 @@ class Settings(BaseSettings):
     ORCHESTRATION_MAX_DURATION_MS: int = 1000
     ORCHESTRATION_MAX_RUNTIME_LOAD: float = 1.0
     ORCHESTRATION_MAX_OVERHEAD_MS: int = 250
+    ORCHESTRATION_SAFETY_ENABLED: bool = True
+    ORCHESTRATION_SAFETY_MAX_RETRIES: int = 1
     RUNNER_ID: str = "hermes-runner"
     RUNTIME_ID: str = "hermes-runtime"
 
