@@ -1334,6 +1334,46 @@ class RuntimeStatus:
         self.governance_safety_reasons: list[str] = []
         self.governance_safety_last_error: str | None = None
         self.governance_safety_metadata: dict = {}
+        self.last_operational_task_discovery_at: datetime | None = None
+        self.operational_task_discovery_iteration = 0
+        self.operational_task_discovery_status = "stopped"
+        self.operational_tasks_discovered = 0
+        self.operational_task_discovery_empty = 0
+        self.operational_task_discovery_blocked = 0
+        self.operational_task_discovery_errors = 0
+        self.operational_discovery_id: str | None = None
+        self.operational_discovery_state: str | None = None
+        self.operational_discovered_count = 0
+        self.operational_task_sources: list[str] = []
+        self.operational_source_status: dict = {}
+        self.operational_task_candidates: list[dict] = []
+        self.operational_pending_workflows: list[str] = []
+        self.operational_execution_requests: list[dict] = []
+        self.operational_governance_instructions: list[dict] = []
+        self.operational_ignored_count = 0
+        self.operational_ignored_reasons: dict = {}
+        self.operational_execution_context: dict = {}
+        self.operational_governance_status: str | None = None
+        self.operational_approval_status: str | None = None
+        self.operational_execution_status: str | None = None
+        self.operational_runtime_status: str | None = None
+        self.operational_blocking_status: str | None = None
+        self.operational_execution_prepared = False
+        self.operational_unauthorized_execution_blocked = True
+        self.operational_roadmap_preserved = True
+        self.operational_governance_preserved = True
+        self.operational_audit_consistency_preserved = True
+        self.operational_safety_preserved = True
+        self.operational_runtime_stability_preserved = True
+        self.operational_transparency_preserved = True
+        self.operational_continuity_preserved = True
+        self.operational_traceability_preserved = True
+        self.operational_report_payload: dict = {}
+        self.operational_discovery_lifecycle: list[dict] = []
+        self.operational_discovery_duration_ms = 0
+        self.operational_discovery_reasons: list[str] = []
+        self.operational_discovery_last_error: str | None = None
+        self.operational_discovery_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -4995,6 +5035,112 @@ class RuntimeStatus:
         else:
             self.governance_safety_errors += 1
 
+    def mark_operational_task_discovery_result(self, result: dict) -> None:
+        self.last_operational_task_discovery_at = datetime.now(timezone.utc)
+        self.operational_task_discovery_iteration += 1
+        self.operational_task_discovery_status = (
+            result.get("status") or "unknown"
+        )
+        self.operational_discovery_id = result.get("discovery_id")
+        self.operational_discovery_state = result.get("discovery_status")
+        self.operational_discovered_count = int(
+            result.get("discovered_count") or 0
+        )
+        self.operational_task_sources = [
+            str(source) for source in (result.get("task_sources") or [])
+        ]
+        self.operational_source_status = dict(
+            result.get("source_status") or {}
+        )
+        self.operational_task_candidates = [
+            dict(candidate)
+            for candidate in (result.get("candidates") or [])
+            if isinstance(candidate, dict)
+        ]
+        self.operational_pending_workflows = [
+            str(workflow) for workflow in (result.get("pending_workflows") or [])
+        ]
+        self.operational_execution_requests = [
+            dict(entry)
+            for entry in (result.get("execution_requests") or [])
+            if isinstance(entry, dict)
+        ]
+        self.operational_governance_instructions = [
+            dict(entry)
+            for entry in (result.get("governance_instructions") or [])
+            if isinstance(entry, dict)
+        ]
+        self.operational_ignored_count = int(result.get("ignored_count") or 0)
+        self.operational_ignored_reasons = dict(
+            result.get("ignored_reasons") or {}
+        )
+        self.operational_execution_context = dict(
+            result.get("execution_context") or {}
+        )
+        self.operational_governance_status = result.get("governance_status")
+        self.operational_approval_status = result.get("approval_status")
+        self.operational_execution_status = result.get("execution_status")
+        self.operational_runtime_status = result.get("runtime_status")
+        self.operational_blocking_status = result.get("blocking_status")
+        self.operational_execution_prepared = bool(
+            result.get("execution_prepared")
+        )
+        self.operational_unauthorized_execution_blocked = bool(
+            result.get("unauthorized_execution_blocked")
+        )
+        self.operational_roadmap_preserved = bool(
+            result.get("roadmap_preserved")
+        )
+        self.operational_governance_preserved = bool(
+            result.get("governance_preserved")
+        )
+        self.operational_audit_consistency_preserved = bool(
+            result.get("audit_consistency_preserved")
+        )
+        self.operational_safety_preserved = bool(
+            result.get("operational_safety_preserved")
+        )
+        self.operational_runtime_stability_preserved = bool(
+            result.get("runtime_stability_preserved")
+        )
+        self.operational_transparency_preserved = bool(
+            result.get("execution_transparency_preserved")
+        )
+        self.operational_continuity_preserved = bool(
+            result.get("operational_continuity_preserved")
+        )
+        self.operational_traceability_preserved = bool(
+            result.get("traceability_preserved")
+        )
+        self.operational_report_payload = dict(
+            result.get("report_payload") or {}
+        )
+        self.operational_discovery_lifecycle = [
+            dict(entry)
+            for entry in (result.get("discovery_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.operational_discovery_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.operational_discovery_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.operational_discovery_last_error = result.get("error")
+        self.operational_discovery_metadata = dict(
+            result.get("metadata") or {}
+        )
+
+        if self.operational_task_discovery_status == "tasks_discovered":
+            self.operational_tasks_discovered += self.operational_discovered_count
+        elif self.operational_task_discovery_status == "empty":
+            self.operational_task_discovery_empty += 1
+        elif self.operational_task_discovery_status == "blocked":
+            self.operational_task_discovery_blocked += 1
+        else:
+            self.operational_task_discovery_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -7546,6 +7692,92 @@ class RuntimeStatus:
             "metadata": dict(self.governance_safety_metadata),
         }
 
+    def operational_task_discovery_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_operational_task_discovery_at": fmt(
+                self.last_operational_task_discovery_at
+            ),
+            "operational_task_discovery_iteration": (
+                self.operational_task_discovery_iteration
+            ),
+            "operational_task_discovery_status": (
+                self.operational_task_discovery_status
+            ),
+            "operational_tasks_discovered": (
+                self.operational_tasks_discovered
+            ),
+            "operational_task_discovery_empty": (
+                self.operational_task_discovery_empty
+            ),
+            "operational_task_discovery_blocked": (
+                self.operational_task_discovery_blocked
+            ),
+            "operational_task_discovery_errors": (
+                self.operational_task_discovery_errors
+            ),
+            "discovery_id": self.operational_discovery_id,
+            "discovery_status": self.operational_discovery_state,
+            "discovered_count": self.operational_discovered_count,
+            "task_sources": list(self.operational_task_sources),
+            "source_status": dict(self.operational_source_status),
+            "candidates": [
+                dict(candidate)
+                for candidate in self.operational_task_candidates
+            ],
+            "pending_workflows": list(self.operational_pending_workflows),
+            "execution_requests": [
+                dict(entry) for entry in self.operational_execution_requests
+            ],
+            "governance_instructions": [
+                dict(entry)
+                for entry in self.operational_governance_instructions
+            ],
+            "ignored_count": self.operational_ignored_count,
+            "ignored_reasons": dict(self.operational_ignored_reasons),
+            "execution_context": dict(self.operational_execution_context),
+            "governance_status": self.operational_governance_status,
+            "approval_status": self.operational_approval_status,
+            "execution_status": self.operational_execution_status,
+            "runtime_status": self.operational_runtime_status,
+            "blocking_status": self.operational_blocking_status,
+            "execution_prepared": self.operational_execution_prepared,
+            "unauthorized_execution_blocked": (
+                self.operational_unauthorized_execution_blocked
+            ),
+            "roadmap_preserved": self.operational_roadmap_preserved,
+            "governance_preserved": self.operational_governance_preserved,
+            "audit_consistency_preserved": (
+                self.operational_audit_consistency_preserved
+            ),
+            "operational_safety_preserved": (
+                self.operational_safety_preserved
+            ),
+            "runtime_stability_preserved": (
+                self.operational_runtime_stability_preserved
+            ),
+            "execution_transparency_preserved": (
+                self.operational_transparency_preserved
+            ),
+            "operational_continuity_preserved": (
+                self.operational_continuity_preserved
+            ),
+            "traceability_preserved": (
+                self.operational_traceability_preserved
+            ),
+            "report_payload": dict(self.operational_report_payload),
+            "discovery_lifecycle": [
+                dict(entry)
+                for entry in self.operational_discovery_lifecycle
+            ],
+            "duration_ms": self.operational_discovery_duration_ms,
+            "reasons": list(self.operational_discovery_reasons),
+            "last_error": self.operational_discovery_last_error,
+            "metadata": dict(self.operational_discovery_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -7762,6 +7994,9 @@ class RuntimeStatus:
             "approval_system": self.approval_system_metrics(),
             "governance_escalation": self.governance_escalation_metrics(),
             "governance_safety": self.governance_safety_metrics(),
+            "operational_task_discovery": (
+                self.operational_task_discovery_metrics()
+            ),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
             "response_safety": self.response_safety_metrics(),
