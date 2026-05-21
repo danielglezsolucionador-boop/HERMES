@@ -1677,6 +1677,35 @@ class RuntimeStatus:
         self.knowledge_core_reader_reasons: list[str] = []
         self.knowledge_core_reader_last_error: str | None = None
         self.knowledge_core_reader_metadata: dict = {}
+        self.last_phases_roadmap_reader_at: datetime | None = None
+        self.phases_roadmap_reader_iteration = 0
+        self.phases_roadmap_reader_status = "stopped"
+        self.phases_roadmap_reader_interpreted = 0
+        self.phases_roadmap_reader_blocked = 0
+        self.phases_roadmap_reader_errors = 0
+        self.phases_roadmap_id: str | None = None
+        self.phases_roadmap_sources: list[str] = []
+        self.phase_structure: list[dict] = []
+        self.subphase_structure: list[str] = []
+        self.roadmap_execution_order: list[str] = []
+        self.roadmap_priority_context: dict = {}
+        self.roadmap_dependency_relationships: list[dict] = []
+        self.roadmap_governance_context: dict = {}
+        self.roadmap_continuation_status: str | None = None
+        self.roadmap_legitimacy_valid = False
+        self.roadmap_phase_consistency_valid = False
+        self.roadmap_dependency_integrity_valid = False
+        self.roadmap_governance_alignment_valid = False
+        self.roadmap_execution_continuity_valid = False
+        self.roadmap_coherence_preserved = False
+        self.roadmap_operational_continuity_preserved = False
+        self.roadmap_execution_traceability_preserved = False
+        self.roadmap_human_visibility_payload: dict = {}
+        self.phases_roadmap_reader_lifecycle: list[dict] = []
+        self.phases_roadmap_reader_duration_ms = 0
+        self.phases_roadmap_reader_reasons: list[str] = []
+        self.phases_roadmap_reader_last_error: str | None = None
+        self.phases_roadmap_reader_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -6225,6 +6254,88 @@ class RuntimeStatus:
         else:
             self.knowledge_core_reader_errors += 1
 
+    def mark_phases_roadmap_reader_result(self, result: dict) -> None:
+        self.last_phases_roadmap_reader_at = datetime.now(timezone.utc)
+        self.phases_roadmap_reader_iteration += 1
+        self.phases_roadmap_reader_status = result.get("status") or "unknown"
+        self.phases_roadmap_id = result.get("roadmap_id")
+        self.phases_roadmap_sources = [
+            str(item) for item in (result.get("roadmap_sources") or [])
+        ]
+        self.phase_structure = [
+            dict(item)
+            for item in (result.get("phase_structure") or [])
+            if isinstance(item, dict)
+        ]
+        self.subphase_structure = [
+            str(item) for item in (result.get("subphase_structure") or [])
+        ]
+        self.roadmap_execution_order = [
+            str(item) for item in (result.get("execution_order") or [])
+        ]
+        self.roadmap_priority_context = dict(
+            result.get("priority_context") or {}
+        )
+        self.roadmap_dependency_relationships = [
+            dict(item)
+            for item in (result.get("dependency_relationships") or [])
+            if isinstance(item, dict)
+        ]
+        self.roadmap_governance_context = dict(
+            result.get("governance_context") or {}
+        )
+        self.roadmap_continuation_status = result.get("continuation_status")
+        self.roadmap_legitimacy_valid = bool(
+            result.get("roadmap_legitimacy_valid")
+        )
+        self.roadmap_phase_consistency_valid = bool(
+            result.get("phase_consistency_valid")
+        )
+        self.roadmap_dependency_integrity_valid = bool(
+            result.get("dependency_integrity_valid")
+        )
+        self.roadmap_governance_alignment_valid = bool(
+            result.get("governance_alignment_valid")
+        )
+        self.roadmap_execution_continuity_valid = bool(
+            result.get("execution_continuity_valid")
+        )
+        self.roadmap_coherence_preserved = bool(
+            result.get("roadmap_coherence_preserved")
+        )
+        self.roadmap_operational_continuity_preserved = bool(
+            result.get("operational_continuity_preserved")
+        )
+        self.roadmap_execution_traceability_preserved = bool(
+            result.get("execution_traceability_preserved")
+        )
+        self.roadmap_human_visibility_payload = dict(
+            result.get("human_visibility_payload") or {}
+        )
+        self.phases_roadmap_reader_lifecycle = [
+            dict(entry)
+            for entry in (result.get("roadmap_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.phases_roadmap_reader_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.phases_roadmap_reader_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.phases_roadmap_reader_last_error = result.get("error")
+        self.phases_roadmap_reader_metadata = dict(
+            result.get("metadata") or {}
+        )
+
+        if self.phases_roadmap_reader_status == "interpreted":
+            self.phases_roadmap_reader_interpreted += 1
+        elif self.phases_roadmap_reader_status == "blocked":
+            self.phases_roadmap_reader_blocked += 1
+        else:
+            self.phases_roadmap_reader_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -9529,6 +9640,72 @@ class RuntimeStatus:
             "metadata": dict(self.knowledge_core_reader_metadata),
         }
 
+    def phases_roadmap_reader_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_phases_roadmap_reader_at": fmt(
+                self.last_phases_roadmap_reader_at
+            ),
+            "phases_roadmap_reader_iteration": (
+                self.phases_roadmap_reader_iteration
+            ),
+            "phases_roadmap_reader_status": (
+                self.phases_roadmap_reader_status
+            ),
+            "phases_roadmap_reader_interpreted": (
+                self.phases_roadmap_reader_interpreted
+            ),
+            "phases_roadmap_reader_blocked": (
+                self.phases_roadmap_reader_blocked
+            ),
+            "phases_roadmap_reader_errors": (
+                self.phases_roadmap_reader_errors
+            ),
+            "roadmap_id": self.phases_roadmap_id,
+            "roadmap_sources": list(self.phases_roadmap_sources),
+            "phase_structure": [dict(item) for item in self.phase_structure],
+            "subphase_structure": list(self.subphase_structure),
+            "execution_order": list(self.roadmap_execution_order),
+            "priority_context": dict(self.roadmap_priority_context),
+            "dependency_relationships": [
+                dict(item) for item in self.roadmap_dependency_relationships
+            ],
+            "governance_context": dict(self.roadmap_governance_context),
+            "continuation_status": self.roadmap_continuation_status,
+            "roadmap_legitimacy_valid": self.roadmap_legitimacy_valid,
+            "phase_consistency_valid": self.roadmap_phase_consistency_valid,
+            "dependency_integrity_valid": (
+                self.roadmap_dependency_integrity_valid
+            ),
+            "governance_alignment_valid": (
+                self.roadmap_governance_alignment_valid
+            ),
+            "execution_continuity_valid": (
+                self.roadmap_execution_continuity_valid
+            ),
+            "roadmap_coherence_preserved": (
+                self.roadmap_coherence_preserved
+            ),
+            "operational_continuity_preserved": (
+                self.roadmap_operational_continuity_preserved
+            ),
+            "execution_traceability_preserved": (
+                self.roadmap_execution_traceability_preserved
+            ),
+            "human_visibility_payload": dict(
+                self.roadmap_human_visibility_payload
+            ),
+            "roadmap_lifecycle": [
+                dict(entry) for entry in self.phases_roadmap_reader_lifecycle
+            ],
+            "duration_ms": self.phases_roadmap_reader_duration_ms,
+            "reasons": list(self.phases_roadmap_reader_reasons),
+            "last_error": self.phases_roadmap_reader_last_error,
+            "metadata": dict(self.phases_roadmap_reader_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -9769,6 +9946,9 @@ class RuntimeStatus:
                 self.sentinel_audit_reporting_metrics()
             ),
             "knowledge_core_reader": self.knowledge_core_reader_metrics(),
+            "phases_roadmap_reader": (
+                self.phases_roadmap_reader_metrics()
+            ),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
             "response_safety": self.response_safety_metrics(),
