@@ -4,8 +4,8 @@ Runtime loop foundation for Hermes.
 This loop maintains runtime heartbeat and lifecycle state. Task claiming is
 controlled and disabled by default. It never executes or retries tasks.
 Execution, timeout control, provider bridge, response ingestion, response
-validation, and response safety foundations are initialized for observability
-but do not run autonomous work.
+validation, response safety, and orchestration foundations are initialized for
+observability but do not run autonomous work.
 """
 import asyncio
 import logging
@@ -19,6 +19,10 @@ from app.db.engine import AsyncSessionLocal
 from app.models.task import Task
 from app.runner.pickup_safety import PickupSafety, PickupSafetyResult
 from app.runner.execution_safety import ExecutionSafety, ExecutionSafetyResult
+from app.runner.orchestration_foundation import (
+    OrchestrationResult,
+    OrchestrationRuntime,
+)
 from app.runner.response_ingestion import ResponseIngestionRuntime
 from app.runner.response_safety import ResponseSafetyRuntime
 from app.runner.response_validation import ResponseValidationRuntime
@@ -51,12 +55,14 @@ class RuntimeLoop:
         execution_safety: Callable[[], Awaitable[ExecutionSafetyResult]] | None = None,
         timeout_control: Callable[[], Awaitable[TimeoutControlResult]] | None = None,
         retry_control: Callable[[], Awaitable[RetryControlResult]] | None = None,
+        orchestration: Callable[[], Awaitable[OrchestrationResult]] | None = None,
         claiming_enabled: bool = settings.TASK_CLAIMING_ENABLED,
         pickup_safety_enabled: bool = settings.TASK_PICKUP_SAFETY_ENABLED,
         execution_enabled: bool = settings.TASK_EXECUTION_ENABLED,
         execution_safety_enabled: bool = settings.TASK_EXECUTION_SAFETY_ENABLED,
         timeout_control_enabled: bool = settings.TIMEOUT_CONTROL_ENABLED,
         retry_control_enabled: bool = settings.RETRY_CONTROL_ENABLED,
+        orchestration_enabled: bool = settings.ORCHESTRATION_ENABLED,
         provider_bridge_enabled: bool = settings.PROVIDER_BRIDGE_ENABLED,
         response_ingestion_enabled: bool = settings.RESPONSE_INGESTION_ENABLED,
         response_validation_enabled: bool = settings.RESPONSE_VALIDATION_ENABLED,
@@ -95,6 +101,9 @@ class RuntimeLoop:
         self.retry_control_enabled = bool(retry_control_enabled)
         self.retry_control_runtime = RetryControl()
         self.retry_control = retry_control or self._inspect_retry_control
+        self.orchestration_enabled = bool(orchestration_enabled)
+        self.orchestration_runtime = OrchestrationRuntime()
+        self.orchestration = orchestration or self._inspect_orchestration
         self.provider_bridge_enabled = bool(provider_bridge_enabled)
         self.response_ingestion_enabled = bool(response_ingestion_enabled)
         self.response_ingestion = ResponseIngestionRuntime()
@@ -169,6 +178,9 @@ class RuntimeLoop:
         if self.retry_control_enabled:
             retry_control_result = await self.retry_control()
             self.status.mark_retry_control_result(retry_control_result.to_dict())
+        if self.orchestration_enabled:
+            orchestration_result = await self.orchestration()
+            self.status.mark_orchestration_result(orchestration_result.to_dict())
         if (
             tasks_detected > 0
             and tasks_detected != self._last_logged_tasks_detected
@@ -216,6 +228,12 @@ class RuntimeLoop:
             runtime_active=not self._stop_requested,
             retry_permitted=True,
             provider_available=True,
+        )
+
+    async def _inspect_orchestration(self) -> OrchestrationResult:
+        return await self.orchestration_runtime.inspect(
+            runtime_active=not self._stop_requested,
+            coordination_permitted=True,
         )
 
     async def _count_pending_tasks(self) -> int:
@@ -282,6 +300,15 @@ class RuntimeLoop:
             max_retry_duration_ms=settings.RETRY_CONTROL_MAX_DURATION_MS,
             max_runtime_retry_load=settings.RETRY_CONTROL_MAX_RUNTIME_LOAD,
             max_retry_overhead_ms=settings.RETRY_CONTROL_MAX_OVERHEAD_MS,
+        )
+        self.status.mark_orchestration_started(
+            enabled=self.orchestration_enabled,
+            interval_seconds=self.interval_seconds,
+            max_active_orchestrations=settings.ORCHESTRATION_MAX_ACTIVE,
+            max_execution_dependencies=settings.ORCHESTRATION_MAX_DEPENDENCIES,
+            max_orchestration_duration_ms=settings.ORCHESTRATION_MAX_DURATION_MS,
+            max_orchestration_load=settings.ORCHESTRATION_MAX_RUNTIME_LOAD,
+            max_coordination_overhead_ms=settings.ORCHESTRATION_MAX_OVERHEAD_MS,
         )
         self.status.mark_provider_bridge_started(
             enabled=self.provider_bridge_enabled,
@@ -362,6 +389,10 @@ class RuntimeLoop:
             "enabled" if self.retry_control_enabled else "disabled",
         )
         logger.info(
+            "runtime_loop: orchestration foundation %s",
+            "enabled" if self.orchestration_enabled else "disabled",
+        )
+        logger.info(
             "runtime_loop: provider bridge %s",
             "enabled" if self.provider_bridge_enabled else "disabled",
         )
@@ -413,6 +444,11 @@ class RuntimeLoop:
                         )
                     if self.retry_control_enabled:
                         self.status.mark_retry_control_error(
+                            str(exc),
+                            poll_duration_ms,
+                        )
+                    if self.orchestration_enabled:
+                        self.status.mark_orchestration_error(
                             str(exc),
                             poll_duration_ms,
                         )

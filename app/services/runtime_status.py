@@ -267,6 +267,52 @@ class RuntimeStatus:
         self.last_retry_duration_ms = 0
         self.retry_control_metadata: dict = {}
         self.retry_control_reasons: list[str] = []
+        self.orchestration_started_at: datetime | None = None
+        self.last_orchestration_at: datetime | None = None
+        self.orchestration_iteration = 0
+        self.orchestration_enabled = False
+        self.orchestration_status = "stopped"
+        self.orchestration_state: str | None = None
+        self.dependency_state: str | None = None
+        self.orchestration_interval_seconds = 0.0
+        self.orchestration_last_duration_ms = 0
+        self.orchestration_errors = 0
+        self.orchestration_last_error: str | None = None
+        self.orchestrations_registered = 0
+        self.orchestrations_started = 0
+        self.orchestrations_completed = 0
+        self.orchestrations_released = 0
+        self.orchestrations_rejected = 0
+        self.orchestrations_failed = 0
+        self.coordination_allowed = True
+        self.orchestration_runtime_protected = True
+        self.orchestration_conflict_detected = False
+        self.orchestration_linkage_valid = True
+        self.orchestration_ownership_consistent = True
+        self.orchestration_dependency_valid = True
+        self.active_orchestrations = 0
+        self.max_active_orchestrations = 0
+        self.runtime_orchestration_load: float | None = None
+        self.max_orchestration_load = 0.0
+        self.max_execution_dependencies = 0
+        self.max_orchestration_duration_ms = 0
+        self.max_coordination_overhead_ms = 0
+        self.last_orchestration_id: str | None = None
+        self.last_orchestration_execution_id: str | None = None
+        self.last_orchestration_task_id: str | None = None
+        self.last_orchestration_runner_id: str | None = None
+        self.last_orchestration_runtime_id: str | None = None
+        self.last_orchestration_runtime_owner: str | None = None
+        self.last_orchestration_execution_state: str | None = None
+        self.last_orchestration_task_status: str | None = None
+        self.last_orchestration_execution_order = 0
+        self.last_orchestration_dependency_count = 0
+        self.last_coordination_started_at: str | None = None
+        self.last_coordination_completed_at: str | None = None
+        self.last_coordination_duration_ms = 0
+        self.orchestration_dependencies: list[dict] = []
+        self.orchestration_metadata: dict = {}
+        self.orchestration_reasons: list[str] = []
         self.provider_bridge_started_at: datetime | None = None
         self.last_provider_bridge_at: datetime | None = None
         self.provider_bridge_iteration = 0
@@ -539,6 +585,7 @@ class RuntimeStatus:
         self.execution_safety_status = "stopped"
         self.timeout_control_status = "stopped"
         self.retry_control_status = "stopped"
+        self.orchestration_status = "stopped"
         self.provider_bridge_status = "stopped"
         self.response_ingestion_status = "stopped"
         self.response_validation_status = "stopped"
@@ -1306,6 +1353,163 @@ class RuntimeStatus:
         self.retry_allowed = False
         self.retry_runtime_protected = True
         self.retry_control_last_error = error or "unknown_retry_control_error"
+
+    def mark_orchestration_started(
+        self,
+        enabled: bool,
+        interval_seconds: float,
+        max_active_orchestrations: int = 0,
+        max_execution_dependencies: int = 0,
+        max_orchestration_duration_ms: int = 0,
+        max_orchestration_load: float = 0.0,
+        max_coordination_overhead_ms: int = 0,
+    ) -> None:
+        self.orchestration_started_at = datetime.now(timezone.utc)
+        self.orchestration_enabled = bool(enabled)
+        self.orchestration_status = "active" if enabled else "disabled"
+        self.orchestration_state = "ready" if enabled else "disabled"
+        self.dependency_state = "clear" if enabled else "disabled"
+        self.orchestration_interval_seconds = interval_seconds
+        self.max_active_orchestrations = max(
+            0,
+            int(max_active_orchestrations or 0),
+        )
+        self.max_execution_dependencies = max(
+            0,
+            int(max_execution_dependencies or 0),
+        )
+        self.max_orchestration_duration_ms = max(
+            0,
+            int(max_orchestration_duration_ms or 0),
+        )
+        self.max_orchestration_load = max(
+            0.0,
+            float(max_orchestration_load or 0.0),
+        )
+        self.max_coordination_overhead_ms = max(
+            0,
+            int(max_coordination_overhead_ms or 0),
+        )
+        self.orchestration_last_error = None
+
+    def mark_orchestration_result(self, result: dict) -> None:
+        self.last_orchestration_at = datetime.now(timezone.utc)
+        self.orchestration_iteration += 1
+        self.orchestration_status = result.get("status") or "unknown"
+        self.orchestration_state = result.get("orchestration_state")
+        self.dependency_state = result.get("dependency_state")
+        self.orchestration_last_duration_ms = max(
+            0,
+            int(result.get("coordination_overhead_ms") or 0),
+        )
+        self.coordination_allowed = bool(result.get("coordination_allowed"))
+        self.orchestration_runtime_protected = bool(
+            result.get("runtime_protected", True)
+        )
+        self.orchestration_conflict_detected = bool(
+            result.get("conflict_detected")
+        )
+        self.orchestration_linkage_valid = bool(
+            result.get("linkage_valid", True)
+        )
+        self.orchestration_ownership_consistent = bool(
+            result.get("ownership_consistent", True)
+        )
+        self.orchestration_dependency_valid = bool(
+            result.get("dependency_valid", True)
+        )
+        self.active_orchestrations = max(
+            0,
+            int(result.get("active_orchestrations") or 0),
+        )
+        self.max_active_orchestrations = max(
+            0,
+            int(result.get("max_active_orchestrations") or 0),
+        )
+        runtime_load = result.get("runtime_orchestration_load")
+        self.runtime_orchestration_load = (
+            float(runtime_load) if runtime_load is not None else None
+        )
+        self.max_orchestration_load = max(
+            0.0,
+            float(result.get("max_orchestration_load") or 0.0),
+        )
+        self.max_execution_dependencies = max(
+            0,
+            int(result.get("max_execution_dependencies") or 0),
+        )
+        self.max_orchestration_duration_ms = max(
+            0,
+            int(result.get("max_orchestration_duration_ms") or 0),
+        )
+        self.max_coordination_overhead_ms = max(
+            0,
+            int(result.get("max_coordination_overhead_ms") or 0),
+        )
+        self.last_orchestration_id = result.get("orchestration_id")
+        self.last_orchestration_execution_id = result.get("execution_id")
+        self.last_orchestration_task_id = result.get("task_id")
+        self.last_orchestration_runner_id = result.get("runner_id")
+        self.last_orchestration_runtime_id = result.get("runtime_id")
+        self.last_orchestration_runtime_owner = result.get("runtime_owner")
+        self.last_orchestration_execution_state = result.get("execution_state")
+        self.last_orchestration_task_status = result.get("task_status")
+        self.last_orchestration_execution_order = max(
+            0,
+            int(result.get("execution_order") or 0),
+        )
+        self.last_orchestration_dependency_count = max(
+            0,
+            int(result.get("dependency_count") or 0),
+        )
+        self.last_coordination_started_at = result.get("coordination_started_at")
+        self.last_coordination_completed_at = result.get(
+            "coordination_completed_at"
+        )
+        self.last_coordination_duration_ms = max(
+            0,
+            int(result.get("coordination_duration_ms") or 0),
+        )
+        self.orchestration_dependencies = [
+            dict(item) for item in (result.get("dependencies") or [])
+        ]
+        self.orchestration_metadata = dict(result.get("metadata") or {})
+        self.orchestration_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.orchestration_last_error = result.get("error")
+
+        if self.orchestration_status == "registered":
+            self.orchestrations_registered += 1
+        elif self.orchestration_status == "coordinating":
+            self.orchestrations_started += 1
+        elif self.orchestration_status == "released":
+            self.orchestrations_completed += 1
+            self.orchestrations_released += 1
+        elif self.orchestration_status == "rejected":
+            self.orchestrations_rejected += 1
+        elif self.orchestration_status == "failed":
+            self.orchestrations_failed += 1
+        elif self.orchestration_status == "error":
+            self.orchestrations_failed += 1
+            self.orchestration_errors += 1
+
+    def mark_orchestration_error(
+        self,
+        error: str,
+        duration_ms: int = 0,
+    ) -> None:
+        self.last_orchestration_at = datetime.now(timezone.utc)
+        self.orchestration_iteration += 1
+        self.orchestration_last_duration_ms = max(0, int(duration_ms or 0))
+        self.orchestration_errors += 1
+        self.orchestrations_failed += 1
+        self.orchestration_status = "error"
+        self.orchestration_state = "error"
+        self.dependency_state = "unknown"
+        self.coordination_allowed = False
+        self.orchestration_runtime_protected = True
+        self.orchestration_last_error = error or "unknown_orchestration_error"
 
     def mark_provider_bridge_started(
         self,
@@ -2166,6 +2370,65 @@ class RuntimeStatus:
             "reasons": list(self.retry_control_reasons),
         }
 
+    def orchestration_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "started_at": fmt(self.orchestration_started_at),
+            "last_orchestration_at": fmt(self.last_orchestration_at),
+            "orchestration_iteration": self.orchestration_iteration,
+            "orchestration_enabled": self.orchestration_enabled,
+            "orchestration_status": self.orchestration_status,
+            "orchestration_state": self.orchestration_state,
+            "dependency_state": self.dependency_state,
+            "orchestration_interval_seconds": (
+                self.orchestration_interval_seconds
+            ),
+            "orchestration_last_duration_ms": (
+                self.orchestration_last_duration_ms
+            ),
+            "orchestration_errors": self.orchestration_errors,
+            "orchestration_last_error": self.orchestration_last_error,
+            "orchestrations_registered": self.orchestrations_registered,
+            "orchestrations_started": self.orchestrations_started,
+            "orchestrations_completed": self.orchestrations_completed,
+            "orchestrations_released": self.orchestrations_released,
+            "orchestrations_rejected": self.orchestrations_rejected,
+            "orchestrations_failed": self.orchestrations_failed,
+            "coordination_allowed": self.coordination_allowed,
+            "runtime_protected": self.orchestration_runtime_protected,
+            "conflict_detected": self.orchestration_conflict_detected,
+            "linkage_valid": self.orchestration_linkage_valid,
+            "ownership_consistent": self.orchestration_ownership_consistent,
+            "dependency_valid": self.orchestration_dependency_valid,
+            "active_orchestrations": self.active_orchestrations,
+            "max_active_orchestrations": self.max_active_orchestrations,
+            "runtime_orchestration_load": self.runtime_orchestration_load,
+            "max_orchestration_load": self.max_orchestration_load,
+            "max_execution_dependencies": self.max_execution_dependencies,
+            "max_orchestration_duration_ms": (
+                self.max_orchestration_duration_ms
+            ),
+            "max_coordination_overhead_ms": self.max_coordination_overhead_ms,
+            "orchestration_id": self.last_orchestration_id,
+            "execution_id": self.last_orchestration_execution_id,
+            "task_id": self.last_orchestration_task_id,
+            "runner_id": self.last_orchestration_runner_id,
+            "runtime_id": self.last_orchestration_runtime_id,
+            "runtime_owner": self.last_orchestration_runtime_owner,
+            "execution_state": self.last_orchestration_execution_state,
+            "task_status": self.last_orchestration_task_status,
+            "execution_order": self.last_orchestration_execution_order,
+            "dependency_count": self.last_orchestration_dependency_count,
+            "coordination_started_at": self.last_coordination_started_at,
+            "coordination_completed_at": self.last_coordination_completed_at,
+            "coordination_duration_ms": self.last_coordination_duration_ms,
+            "dependencies": [dict(item) for item in self.orchestration_dependencies],
+            "metadata": dict(self.orchestration_metadata),
+            "reasons": list(self.orchestration_reasons),
+        }
+
     def provider_bridge_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -2392,6 +2655,7 @@ class RuntimeStatus:
             "execution_safety": self.execution_safety_metrics(),
             "timeout_control": self.timeout_control_metrics(),
             "retry_control": self.retry_control_metrics(),
+            "orchestration": self.orchestration_metrics(),
             "provider_bridge": self.provider_bridge_metrics(),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),

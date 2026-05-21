@@ -382,6 +382,38 @@ async def test_runtime_loop_initializes_retry_control_metrics():
 
 
 @pytest.mark.asyncio
+async def test_runtime_loop_initializes_orchestration_metrics():
+    async def two_discovered_tasks() -> TaskDiscoveryResult:
+        return TaskDiscoveryResult.from_count(2)
+
+    status = RuntimeStatus()
+    loop = RuntimeLoop(
+        status=status,
+        interval_seconds=0.01,
+        min_interval_seconds=0.01,
+        heartbeat_log_every=1000,
+        task_discovery=two_discovered_tasks,
+        orchestration_enabled=True,
+    )
+
+    task = asyncio.create_task(loop.run())
+    await asyncio.sleep(0.03)
+    orchestration = status.orchestration_metrics()
+    loop.request_stop("test_stop")
+    await asyncio.wait_for(task, timeout=1)
+
+    assert orchestration["orchestration_enabled"] is True
+    assert orchestration["orchestration_status"] == "idle"
+    assert orchestration["orchestration_state"] == "ready"
+    assert orchestration["dependency_state"] == "clear"
+    assert orchestration["orchestration_iteration"] > 0
+    assert orchestration["orchestrations_registered"] == 0
+    assert orchestration["active_orchestrations"] == 0
+    assert orchestration["max_active_orchestrations"] == 1
+    assert orchestration["runtime_protected"] is True
+
+
+@pytest.mark.asyncio
 async def test_runtime_loop_initializes_response_ingestion_metrics():
     async def two_discovered_tasks() -> TaskDiscoveryResult:
         return TaskDiscoveryResult.from_count(2)
