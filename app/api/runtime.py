@@ -117,6 +117,9 @@ async def runtime_status(session: AsyncSession = Depends(get_session)):
         vulcan_operational_validation_metrics = (
             runner_runtime_status.vulcan_operational_validation_metrics()
         )
+        sentinel_audit_pipeline_metrics = (
+            runner_runtime_status.sentinel_audit_pipeline_metrics()
+        )
         response_ingestion_metrics = runner_runtime_status.response_ingestion_metrics()
         response_validation_metrics = runner_runtime_status.response_validation_metrics()
         response_safety_metrics = runner_runtime_status.response_safety_metrics()
@@ -181,6 +184,7 @@ async def runtime_status(session: AsyncSession = Depends(get_session)):
             "vulcan_operational_validation": (
                 vulcan_operational_validation_metrics
             ),
+            "sentinel_audit_pipeline": sentinel_audit_pipeline_metrics,
             "response_ingestion": response_ingestion_metrics,
             "response_validation": response_validation_metrics,
             "response_safety": response_safety_metrics,

@@ -1507,6 +1507,39 @@ class RuntimeStatus:
         self.vulcan_operational_validation_reasons: list[str] = []
         self.vulcan_operational_validation_last_error: str | None = None
         self.vulcan_operational_validation_metadata: dict = {}
+        self.last_sentinel_audit_pipeline_at: datetime | None = None
+        self.sentinel_audit_pipeline_iteration = 0
+        self.sentinel_audit_pipeline_status = "stopped"
+        self.sentinel_audit_pipeline_completed = 0
+        self.sentinel_audit_pipeline_blocked = 0
+        self.sentinel_audit_pipeline_errors = 0
+        self.sentinel_audit_id: str | None = None
+        self.sentinel_audit_execution_id: str | None = None
+        self.sentinel_audit_task_id: str | None = None
+        self.sentinel_auditor: str | None = None
+        self.sentinel_audit_decision: str | None = None
+        self.sentinel_audit_execution_context: dict = {}
+        self.sentinel_audit_modified_files: list[str] = []
+        self.sentinel_runtime_valid = False
+        self.sentinel_imports_valid = False
+        self.sentinel_architecture_valid = False
+        self.sentinel_governance_valid = False
+        self.sentinel_security_observation_clear = False
+        self.sentinel_runtime_integrity_preserved = False
+        self.sentinel_execution_consistency_preserved = False
+        self.sentinel_governance_audit_preserved = False
+        self.sentinel_operational_stability_preserved = False
+        self.sentinel_security_escalation_required = False
+        self.sentinel_continuation_authorized = False
+        self.sentinel_audit_completed = False
+        self.sentinel_risks_detected: list[str] = []
+        self.sentinel_blocking_conditions: list[str] = []
+        self.sentinel_audit_report_payload: dict = {}
+        self.sentinel_audit_lifecycle: list[dict] = []
+        self.sentinel_audit_pipeline_duration_ms = 0
+        self.sentinel_audit_pipeline_reasons: list[str] = []
+        self.sentinel_audit_pipeline_last_error: str | None = None
+        self.sentinel_audit_pipeline_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -5621,6 +5654,89 @@ class RuntimeStatus:
         else:
             self.vulcan_operational_validation_errors += 1
 
+    def mark_sentinel_audit_pipeline_result(self, result: dict) -> None:
+        self.last_sentinel_audit_pipeline_at = datetime.now(timezone.utc)
+        self.sentinel_audit_pipeline_iteration += 1
+        self.sentinel_audit_pipeline_status = result.get("status") or "unknown"
+        self.sentinel_audit_id = result.get("audit_id")
+        self.sentinel_audit_execution_id = result.get("execution_id")
+        self.sentinel_audit_task_id = result.get("task_id")
+        self.sentinel_auditor = result.get("auditor")
+        self.sentinel_audit_decision = result.get("audit_decision")
+        self.sentinel_audit_execution_context = dict(
+            result.get("execution_context") or {}
+        )
+        self.sentinel_audit_modified_files = [
+            str(path) for path in (result.get("modified_files") or [])
+        ]
+        self.sentinel_runtime_valid = bool(result.get("runtime_valid"))
+        self.sentinel_imports_valid = bool(result.get("imports_valid"))
+        self.sentinel_architecture_valid = bool(
+            result.get("architecture_valid")
+        )
+        self.sentinel_governance_valid = bool(
+            result.get("governance_valid")
+        )
+        self.sentinel_security_observation_clear = bool(
+            result.get("security_observation_clear")
+        )
+        self.sentinel_runtime_integrity_preserved = bool(
+            result.get("runtime_integrity_preserved")
+        )
+        self.sentinel_execution_consistency_preserved = bool(
+            result.get("execution_consistency_preserved")
+        )
+        self.sentinel_governance_audit_preserved = bool(
+            result.get("governance_audit_preserved")
+        )
+        self.sentinel_operational_stability_preserved = bool(
+            result.get("operational_stability_preserved")
+        )
+        self.sentinel_security_escalation_required = bool(
+            result.get("security_escalation_required")
+        )
+        self.sentinel_continuation_authorized = bool(
+            result.get("continuation_authorized")
+        )
+        self.sentinel_audit_completed = bool(result.get("audit_completed"))
+        self.sentinel_risks_detected = [
+            str(risk) for risk in (result.get("risks_detected") or [])
+        ]
+        self.sentinel_blocking_conditions = [
+            str(item) for item in (result.get("blocking_conditions") or [])
+        ]
+        self.sentinel_audit_report_payload = dict(
+            result.get("report_payload") or {}
+        )
+        self.sentinel_audit_lifecycle = [
+            dict(entry)
+            for entry in (result.get("audit_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.sentinel_audit_pipeline_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.sentinel_audit_pipeline_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.sentinel_audit_pipeline_last_error = result.get("error")
+        self.sentinel_audit_pipeline_metadata = dict(
+            result.get("metadata") or {}
+        )
+
+        if self.sentinel_audit_pipeline_status in {
+            "approved",
+            "conditional_approved",
+            "rejected",
+            "escalated",
+        }:
+            self.sentinel_audit_pipeline_completed += 1
+        elif self.sentinel_audit_pipeline_status == "blocked":
+            self.sentinel_audit_pipeline_blocked += 1
+        else:
+            self.sentinel_audit_pipeline_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -8552,6 +8668,74 @@ class RuntimeStatus:
             "metadata": dict(self.vulcan_operational_validation_metadata),
         }
 
+    def sentinel_audit_pipeline_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_sentinel_audit_pipeline_at": fmt(
+                self.last_sentinel_audit_pipeline_at
+            ),
+            "sentinel_audit_pipeline_iteration": (
+                self.sentinel_audit_pipeline_iteration
+            ),
+            "sentinel_audit_pipeline_status": (
+                self.sentinel_audit_pipeline_status
+            ),
+            "sentinel_audit_pipeline_completed": (
+                self.sentinel_audit_pipeline_completed
+            ),
+            "sentinel_audit_pipeline_blocked": (
+                self.sentinel_audit_pipeline_blocked
+            ),
+            "sentinel_audit_pipeline_errors": (
+                self.sentinel_audit_pipeline_errors
+            ),
+            "audit_id": self.sentinel_audit_id,
+            "execution_id": self.sentinel_audit_execution_id,
+            "task_id": self.sentinel_audit_task_id,
+            "auditor": self.sentinel_auditor,
+            "audit_decision": self.sentinel_audit_decision,
+            "execution_context": dict(self.sentinel_audit_execution_context),
+            "modified_files": list(self.sentinel_audit_modified_files),
+            "runtime_valid": self.sentinel_runtime_valid,
+            "imports_valid": self.sentinel_imports_valid,
+            "architecture_valid": self.sentinel_architecture_valid,
+            "governance_valid": self.sentinel_governance_valid,
+            "security_observation_clear": (
+                self.sentinel_security_observation_clear
+            ),
+            "runtime_integrity_preserved": (
+                self.sentinel_runtime_integrity_preserved
+            ),
+            "execution_consistency_preserved": (
+                self.sentinel_execution_consistency_preserved
+            ),
+            "governance_audit_preserved": (
+                self.sentinel_governance_audit_preserved
+            ),
+            "operational_stability_preserved": (
+                self.sentinel_operational_stability_preserved
+            ),
+            "security_escalation_required": (
+                self.sentinel_security_escalation_required
+            ),
+            "continuation_authorized": (
+                self.sentinel_continuation_authorized
+            ),
+            "audit_completed": self.sentinel_audit_completed,
+            "risks_detected": list(self.sentinel_risks_detected),
+            "blocking_conditions": list(self.sentinel_blocking_conditions),
+            "report_payload": dict(self.sentinel_audit_report_payload),
+            "audit_lifecycle": [
+                dict(entry) for entry in self.sentinel_audit_lifecycle
+            ],
+            "duration_ms": self.sentinel_audit_pipeline_duration_ms,
+            "reasons": list(self.sentinel_audit_pipeline_reasons),
+            "last_error": self.sentinel_audit_pipeline_last_error,
+            "metadata": dict(self.sentinel_audit_pipeline_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -8781,6 +8965,7 @@ class RuntimeStatus:
             "vulcan_operational_validation": (
                 self.vulcan_operational_validation_metrics()
             ),
+            "sentinel_audit_pipeline": self.sentinel_audit_pipeline_metrics(),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
             "response_safety": self.response_safety_metrics(),
