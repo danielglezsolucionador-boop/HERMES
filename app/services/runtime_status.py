@@ -2173,6 +2173,38 @@ class RuntimeStatus:
         self.production_hardening_reasons: list[str] = []
         self.production_hardening_last_error: str | None = None
         self.production_hardening_metadata: dict = {}
+        self.last_final_operational_validation_at: datetime | None = None
+        self.final_operational_validation_iteration = 0
+        self.final_operational_validation_status = "stopped"
+        self.final_operational_validations_ready = 0
+        self.final_operational_validations_blocked = 0
+        self.final_operational_validation_errors = 0
+        self.final_operational_validation_id: str | None = None
+        self.final_operational_validation_workflow_id: str | None = None
+        self.final_runtime_validation_valid = False
+        self.final_workflow_validation_valid = False
+        self.final_governance_validation_valid = False
+        self.final_audit_validation_valid = False
+        self.final_security_validation_valid = False
+        self.final_knowledge_core_validation_valid = False
+        self.final_stability_validation_valid = False
+        self.final_authority_validation_valid = False
+        self.final_execution_validation_valid = False
+        self.final_readiness_valid = False
+        self.final_production_safe = False
+        self.final_continuation_allowed = False
+        self.final_risks_detected = False
+        self.final_blockers_detected = False
+        self.final_validations_executed: list[str] = []
+        self.final_risks: list[str] = []
+        self.final_blockers: list[str] = []
+        self.final_operational_report: dict = {}
+        self.final_operational_visibility_payload: dict = {}
+        self.final_operational_validation_lifecycle: list[dict] = []
+        self.final_operational_validation_duration_ms = 0
+        self.final_operational_validation_reasons: list[str] = []
+        self.final_operational_validation_last_error: str | None = None
+        self.final_operational_validation_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -8026,6 +8058,87 @@ class RuntimeStatus:
         else:
             self.production_hardening_errors += 1
 
+    def mark_final_operational_validation_result(self, result: dict) -> None:
+        self.last_final_operational_validation_at = datetime.now(timezone.utc)
+        self.final_operational_validation_iteration += 1
+        self.final_operational_validation_status = (
+            result.get("status") or "unknown"
+        )
+        self.final_operational_validation_id = result.get("validation_id")
+        self.final_operational_validation_workflow_id = result.get(
+            "workflow_id"
+        )
+        self.final_runtime_validation_valid = bool(
+            result.get("runtime_validation_valid")
+        )
+        self.final_workflow_validation_valid = bool(
+            result.get("workflow_validation_valid")
+        )
+        self.final_governance_validation_valid = bool(
+            result.get("governance_validation_valid")
+        )
+        self.final_audit_validation_valid = bool(
+            result.get("audit_validation_valid")
+        )
+        self.final_security_validation_valid = bool(
+            result.get("security_validation_valid")
+        )
+        self.final_knowledge_core_validation_valid = bool(
+            result.get("knowledge_core_validation_valid")
+        )
+        self.final_stability_validation_valid = bool(
+            result.get("stability_validation_valid")
+        )
+        self.final_authority_validation_valid = bool(
+            result.get("authority_validation_valid")
+        )
+        self.final_execution_validation_valid = bool(
+            result.get("execution_validation_valid")
+        )
+        self.final_readiness_valid = bool(result.get("final_readiness_valid"))
+        self.final_production_safe = bool(result.get("production_safe"))
+        self.final_continuation_allowed = bool(
+            result.get("continuation_allowed")
+        )
+        self.final_risks_detected = bool(result.get("risks_detected"))
+        self.final_blockers_detected = bool(result.get("blockers_detected"))
+        self.final_validations_executed = [
+            str(item) for item in (result.get("validations_executed") or [])
+        ]
+        self.final_risks = [
+            str(item) for item in (result.get("risks") or [])
+        ]
+        self.final_blockers = [
+            str(item) for item in (result.get("blockers") or [])
+        ]
+        self.final_operational_report = dict(result.get("final_report") or {})
+        self.final_operational_visibility_payload = dict(
+            result.get("human_visibility_payload") or {}
+        )
+        self.final_operational_validation_lifecycle = [
+            dict(entry)
+            for entry in (result.get("validation_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.final_operational_validation_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.final_operational_validation_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.final_operational_validation_last_error = result.get("error")
+        self.final_operational_validation_metadata = dict(
+            result.get("metadata") or {}
+        )
+
+        if self.final_operational_validation_status == "ready":
+            self.final_operational_validations_ready += 1
+        elif self.final_operational_validation_status == "blocked":
+            self.final_operational_validations_blocked += 1
+        else:
+            self.final_operational_validation_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -12431,6 +12544,72 @@ class RuntimeStatus:
             "metadata": dict(self.production_hardening_metadata),
         }
 
+    def final_operational_validation_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_final_operational_validation_at": fmt(
+                self.last_final_operational_validation_at
+            ),
+            "final_operational_validation_iteration": (
+                self.final_operational_validation_iteration
+            ),
+            "final_operational_validation_status": (
+                self.final_operational_validation_status
+            ),
+            "final_operational_validations_ready": (
+                self.final_operational_validations_ready
+            ),
+            "final_operational_validations_blocked": (
+                self.final_operational_validations_blocked
+            ),
+            "final_operational_validation_errors": (
+                self.final_operational_validation_errors
+            ),
+            "validation_id": self.final_operational_validation_id,
+            "workflow_id": self.final_operational_validation_workflow_id,
+            "runtime_validation_valid": self.final_runtime_validation_valid,
+            "workflow_validation_valid": self.final_workflow_validation_valid,
+            "governance_validation_valid": (
+                self.final_governance_validation_valid
+            ),
+            "audit_validation_valid": self.final_audit_validation_valid,
+            "security_validation_valid": self.final_security_validation_valid,
+            "knowledge_core_validation_valid": (
+                self.final_knowledge_core_validation_valid
+            ),
+            "stability_validation_valid": (
+                self.final_stability_validation_valid
+            ),
+            "authority_validation_valid": (
+                self.final_authority_validation_valid
+            ),
+            "execution_validation_valid": (
+                self.final_execution_validation_valid
+            ),
+            "final_readiness_valid": self.final_readiness_valid,
+            "production_safe": self.final_production_safe,
+            "continuation_allowed": self.final_continuation_allowed,
+            "risks_detected": self.final_risks_detected,
+            "blockers_detected": self.final_blockers_detected,
+            "validations_executed": list(self.final_validations_executed),
+            "risks": list(self.final_risks),
+            "blockers": list(self.final_blockers),
+            "final_report": dict(self.final_operational_report),
+            "human_visibility_payload": dict(
+                self.final_operational_visibility_payload
+            ),
+            "validation_lifecycle": [
+                dict(entry)
+                for entry in self.final_operational_validation_lifecycle
+            ],
+            "duration_ms": self.final_operational_validation_duration_ms,
+            "reasons": list(self.final_operational_validation_reasons),
+            "last_error": self.final_operational_validation_last_error,
+            "metadata": dict(self.final_operational_validation_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -12704,6 +12883,9 @@ class RuntimeStatus:
             ),
             "observability_base": self.observability_base_metrics(),
             "production_hardening": self.production_hardening_metrics(),
+            "final_operational_validation": (
+                self.final_operational_validation_metrics()
+            ),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
             "response_safety": self.response_safety_metrics(),

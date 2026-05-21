@@ -175,6 +175,9 @@ async def runtime_status(session: AsyncSession = Depends(get_session)):
         production_hardening_metrics = (
             runner_runtime_status.production_hardening_metrics()
         )
+        final_operational_validation_metrics = (
+            runner_runtime_status.final_operational_validation_metrics()
+        )
         response_ingestion_metrics = runner_runtime_status.response_ingestion_metrics()
         response_validation_metrics = runner_runtime_status.response_validation_metrics()
         response_safety_metrics = runner_runtime_status.response_safety_metrics()
@@ -275,6 +278,9 @@ async def runtime_status(session: AsyncSession = Depends(get_session)):
             "long_running_validation": long_running_validation_metrics,
             "observability_base": observability_base_metrics,
             "production_hardening": production_hardening_metrics,
+            "final_operational_validation": (
+                final_operational_validation_metrics
+            ),
             "response_ingestion": response_ingestion_metrics,
             "response_validation": response_validation_metrics,
             "response_safety": response_safety_metrics,
