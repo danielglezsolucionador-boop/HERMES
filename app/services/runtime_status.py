@@ -1178,6 +1178,54 @@ class RuntimeStatus:
         self.governance_foundation_reasons: list[str] = []
         self.governance_foundation_last_error: str | None = None
         self.governance_foundation_metadata: dict = {}
+        self.last_approval_system_at: datetime | None = None
+        self.approval_system_iteration = 0
+        self.approval_system_status = "stopped"
+        self.approval_system_approved = 0
+        self.approval_system_conditional = 0
+        self.approval_system_rejected = 0
+        self.approval_system_escalations_required = 0
+        self.approval_system_blocked = 0
+        self.approval_system_errors = 0
+        self.approval_system_approval_id: str | None = None
+        self.approval_system_authority_source: str | None = None
+        self.approval_system_authority_level: str | None = None
+        self.approval_system_approval_type: str | None = None
+        self.approval_system_required_type: str | None = None
+        self.approval_system_approval_status: str | None = None
+        self.approval_system_execution_decision: str | None = None
+        self.approval_system_execution_permitted = False
+        self.approval_system_conditional_approval = False
+        self.approval_system_restrictions: list[str] = []
+        self.approval_system_workflow_id: str | None = None
+        self.approval_system_execution_id: str | None = None
+        self.approval_system_task_id: str | None = None
+        self.approval_system_execution_context: dict = {}
+        self.approval_system_governance_status: str | None = None
+        self.approval_system_security_status: str | None = None
+        self.approval_system_audit_status: str | None = None
+        self.approval_system_blocking_status: str | None = None
+        self.approval_system_approval_exists = False
+        self.approval_system_approval_legitimate = False
+        self.approval_system_authority_legitimate = False
+        self.approval_system_human_authority_preserved = False
+        self.approval_system_no_self_approval = False
+        self.approval_system_governance_compatible = False
+        self.approval_system_audit_permission_valid = False
+        self.approval_system_security_permission_valid = False
+        self.approval_system_blocking_active = False
+        self.approval_system_escalation_required = False
+        self.approval_system_critical_workflow = False
+        self.approval_system_security_sensitive = False
+        self.approval_system_history: list[dict] = []
+        self.approval_system_governance_foundation: dict = {}
+        self.approval_system_report_payload: dict = {}
+        self.approval_system_lifecycle: list[dict] = []
+        self.approval_system_risks: list[str] = []
+        self.approval_system_duration_ms = 0
+        self.approval_system_reasons: list[str] = []
+        self.approval_system_last_error: str | None = None
+        self.approval_system_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -4443,6 +4491,120 @@ class RuntimeStatus:
         else:
             self.governance_foundation_errors += 1
 
+    def mark_approval_system_result(self, result: dict) -> None:
+        self.last_approval_system_at = datetime.now(timezone.utc)
+        self.approval_system_iteration += 1
+        self.approval_system_status = result.get("status") or "unknown"
+        self.approval_system_approval_id = result.get("approval_id")
+        self.approval_system_authority_source = result.get("authority_source")
+        self.approval_system_authority_level = result.get("authority_level")
+        self.approval_system_approval_type = result.get("approval_type")
+        self.approval_system_required_type = result.get(
+            "required_approval_type"
+        )
+        self.approval_system_approval_status = result.get("approval_status")
+        self.approval_system_execution_decision = result.get(
+            "execution_decision"
+        )
+        self.approval_system_execution_permitted = bool(
+            result.get("execution_permitted")
+        )
+        self.approval_system_conditional_approval = bool(
+            result.get("conditional_approval")
+        )
+        self.approval_system_restrictions = [
+            str(item) for item in (result.get("approval_restrictions") or [])
+        ]
+        self.approval_system_workflow_id = result.get("workflow_id")
+        self.approval_system_execution_id = result.get("execution_id")
+        self.approval_system_task_id = result.get("task_id")
+        self.approval_system_execution_context = dict(
+            result.get("execution_context") or {}
+        )
+        self.approval_system_governance_status = result.get(
+            "governance_status"
+        )
+        self.approval_system_security_status = result.get("security_status")
+        self.approval_system_audit_status = result.get("audit_status")
+        self.approval_system_blocking_status = result.get("blocking_status")
+        self.approval_system_approval_exists = bool(
+            result.get("approval_exists")
+        )
+        self.approval_system_approval_legitimate = bool(
+            result.get("approval_legitimate")
+        )
+        self.approval_system_authority_legitimate = bool(
+            result.get("authority_legitimate")
+        )
+        self.approval_system_human_authority_preserved = bool(
+            result.get("human_authority_preserved")
+        )
+        self.approval_system_no_self_approval = bool(
+            result.get("no_self_approval")
+        )
+        self.approval_system_governance_compatible = bool(
+            result.get("governance_compatible")
+        )
+        self.approval_system_audit_permission_valid = bool(
+            result.get("audit_permission_valid")
+        )
+        self.approval_system_security_permission_valid = bool(
+            result.get("security_permission_valid")
+        )
+        self.approval_system_blocking_active = bool(
+            result.get("blocking_active")
+        )
+        self.approval_system_escalation_required = bool(
+            result.get("escalation_required")
+        )
+        self.approval_system_critical_workflow = bool(
+            result.get("critical_workflow")
+        )
+        self.approval_system_security_sensitive = bool(
+            result.get("security_sensitive")
+        )
+        self.approval_system_history = [
+            dict(entry)
+            for entry in (result.get("approval_history") or [])
+            if isinstance(entry, dict)
+        ]
+        self.approval_system_governance_foundation = dict(
+            result.get("governance_foundation") or {}
+        )
+        self.approval_system_report_payload = dict(
+            result.get("report_payload") or {}
+        )
+        self.approval_system_lifecycle = [
+            dict(entry)
+            for entry in (result.get("approval_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.approval_system_risks = [
+            str(item) for item in (result.get("risks") or [])
+        ]
+        self.approval_system_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.approval_system_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.approval_system_last_error = result.get("error")
+        self.approval_system_metadata = dict(result.get("metadata") or {})
+
+        if self.approval_system_status == "approved":
+            self.approval_system_approved += 1
+        elif self.approval_system_status == "conditional_approval":
+            self.approval_system_conditional += 1
+        elif self.approval_system_status == "rejected":
+            self.approval_system_rejected += 1
+        elif self.approval_system_status == "escalation_required":
+            self.approval_system_escalations_required += 1
+        elif self.approval_system_status == "blocked":
+            self.approval_system_blocked += 1
+        else:
+            self.approval_system_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -6678,6 +6840,83 @@ class RuntimeStatus:
             "metadata": dict(self.governance_foundation_metadata),
         }
 
+    def approval_system_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_approval_system_at": fmt(self.last_approval_system_at),
+            "approval_system_iteration": self.approval_system_iteration,
+            "approval_system_status": self.approval_system_status,
+            "approval_system_approved": self.approval_system_approved,
+            "approval_system_conditional": self.approval_system_conditional,
+            "approval_system_rejected": self.approval_system_rejected,
+            "approval_system_escalations_required": (
+                self.approval_system_escalations_required
+            ),
+            "approval_system_blocked": self.approval_system_blocked,
+            "approval_system_errors": self.approval_system_errors,
+            "approval_id": self.approval_system_approval_id,
+            "authority_source": self.approval_system_authority_source,
+            "authority_level": self.approval_system_authority_level,
+            "approval_type": self.approval_system_approval_type,
+            "required_approval_type": self.approval_system_required_type,
+            "approval_status": self.approval_system_approval_status,
+            "execution_decision": self.approval_system_execution_decision,
+            "execution_permitted": self.approval_system_execution_permitted,
+            "conditional_approval": (
+                self.approval_system_conditional_approval
+            ),
+            "approval_restrictions": list(
+                self.approval_system_restrictions
+            ),
+            "workflow_id": self.approval_system_workflow_id,
+            "execution_id": self.approval_system_execution_id,
+            "task_id": self.approval_system_task_id,
+            "execution_context": dict(
+                self.approval_system_execution_context
+            ),
+            "governance_status": self.approval_system_governance_status,
+            "security_status": self.approval_system_security_status,
+            "audit_status": self.approval_system_audit_status,
+            "blocking_status": self.approval_system_blocking_status,
+            "approval_exists": self.approval_system_approval_exists,
+            "approval_legitimate": self.approval_system_approval_legitimate,
+            "authority_legitimate": self.approval_system_authority_legitimate,
+            "human_authority_preserved": (
+                self.approval_system_human_authority_preserved
+            ),
+            "no_self_approval": self.approval_system_no_self_approval,
+            "governance_compatible": (
+                self.approval_system_governance_compatible
+            ),
+            "audit_permission_valid": (
+                self.approval_system_audit_permission_valid
+            ),
+            "security_permission_valid": (
+                self.approval_system_security_permission_valid
+            ),
+            "blocking_active": self.approval_system_blocking_active,
+            "escalation_required": self.approval_system_escalation_required,
+            "critical_workflow": self.approval_system_critical_workflow,
+            "security_sensitive": self.approval_system_security_sensitive,
+            "approval_history": [
+                dict(entry) for entry in self.approval_system_history
+            ],
+            "governance_foundation": dict(
+                self.approval_system_governance_foundation
+            ),
+            "report_payload": dict(self.approval_system_report_payload),
+            "approval_lifecycle": [
+                dict(entry) for entry in self.approval_system_lifecycle
+            ],
+            "risks": list(self.approval_system_risks),
+            "duration_ms": self.approval_system_duration_ms,
+            "reasons": list(self.approval_system_reasons),
+            "last_error": self.approval_system_last_error,
+            "metadata": dict(self.approval_system_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -6891,6 +7130,7 @@ class RuntimeStatus:
             "ecosystem_registry": self.ecosystem_registry_metrics(),
             "executive_communication": self.executive_communication_metrics(),
             "governance_foundation": self.governance_foundation_metrics(),
+            "approval_system": self.approval_system_metrics(),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
             "response_safety": self.response_safety_metrics(),

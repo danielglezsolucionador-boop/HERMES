@@ -46,9 +46,11 @@ APPROVED_GOVERNANCE_STATUSES = {
 }
 APPROVED_APPROVAL_STATUSES = {
     "approved",
+    "approved_with_restrictions",
     "human_approved",
     "authorized",
     "authorized_by_human",
+    "conditional_approval",
     "approval_granted",
 }
 BLOCKING_STATUSES = {
