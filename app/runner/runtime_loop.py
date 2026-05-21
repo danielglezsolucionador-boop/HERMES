@@ -3,8 +3,9 @@ Runtime loop foundation for Hermes.
 
 This loop maintains runtime heartbeat and lifecycle state. Task claiming is
 controlled and disabled by default. It never executes or retries tasks.
-Execution, provider bridge, response ingestion, response validation, and response safety
-foundations are initialized for observability but do not run autonomous work.
+Execution, timeout control, provider bridge, response ingestion, response
+validation, and response safety foundations are initialized for observability
+but do not run autonomous work.
 """
 import asyncio
 import logging
@@ -23,6 +24,8 @@ from app.runner.response_safety import ResponseSafetyRuntime
 from app.runner.response_validation import ResponseValidationRuntime
 from app.runner.task_claiming import TaskClaiming, TaskClaimingResult
 from app.runner.task_discovery import TaskDiscovery, TaskDiscoveryResult
+from app.runner.task_execution import TaskExecutionRuntime
+from app.runner.timeout_control import TimeoutControl, TimeoutControlResult
 from app.schemas.task import TaskStatus
 from app.services.runtime_status import RuntimeStatus, runtime_status
 
@@ -45,10 +48,12 @@ class RuntimeLoop:
         task_claiming: Callable[[TaskDiscoveryResult], Awaitable[TaskClaimingResult]] | None = None,
         pickup_safety: Callable[[], Awaitable[PickupSafetyResult]] | None = None,
         execution_safety: Callable[[], Awaitable[ExecutionSafetyResult]] | None = None,
+        timeout_control: Callable[[], Awaitable[TimeoutControlResult]] | None = None,
         claiming_enabled: bool = settings.TASK_CLAIMING_ENABLED,
         pickup_safety_enabled: bool = settings.TASK_PICKUP_SAFETY_ENABLED,
         execution_enabled: bool = settings.TASK_EXECUTION_ENABLED,
         execution_safety_enabled: bool = settings.TASK_EXECUTION_SAFETY_ENABLED,
+        timeout_control_enabled: bool = settings.TIMEOUT_CONTROL_ENABLED,
         provider_bridge_enabled: bool = settings.PROVIDER_BRIDGE_ENABLED,
         response_ingestion_enabled: bool = settings.RESPONSE_INGESTION_ENABLED,
         response_validation_enabled: bool = settings.RESPONSE_VALIDATION_ENABLED,
@@ -78,8 +83,12 @@ class RuntimeLoop:
         )
         self.pickup_safety = pickup_safety or PickupSafety().inspect
         self.execution_enabled = bool(execution_enabled)
+        self.task_execution_runtime = TaskExecutionRuntime()
         self.execution_safety_enabled = bool(execution_safety_enabled)
         self.execution_safety = execution_safety or ExecutionSafety().inspect
+        self.timeout_control_enabled = bool(timeout_control_enabled)
+        self.timeout_control_runtime = TimeoutControl()
+        self.timeout_control = timeout_control or self._inspect_timeout_control
         self.provider_bridge_enabled = bool(provider_bridge_enabled)
         self.response_ingestion_enabled = bool(response_ingestion_enabled)
         self.response_ingestion = ResponseIngestionRuntime()
@@ -146,6 +155,11 @@ class RuntimeLoop:
             self.status.mark_execution_safety_completed(
                 execution_safety_result.to_dict()
             )
+        if self.timeout_control_enabled:
+            timeout_control_result = await self.timeout_control()
+            self.status.mark_timeout_control_result(
+                timeout_control_result.to_dict()
+            )
         if (
             tasks_detected > 0
             and tasks_detected != self._last_logged_tasks_detected
@@ -181,6 +195,12 @@ class RuntimeLoop:
         tasks_detected = await self.pending_task_counter()
         duration_ms = int((time.perf_counter() - started) * 1000)
         return TaskDiscoveryResult.from_count(tasks_detected, duration_ms)
+
+    async def _inspect_timeout_control(self) -> TimeoutControlResult:
+        return await self.timeout_control_runtime.inspect(
+            execution_visibility=self.task_execution_runtime.visibility(),
+            runtime_active=not self._stop_requested,
+        )
 
     async def _count_pending_tasks(self) -> int:
         async with AsyncSessionLocal() as session:
@@ -223,6 +243,20 @@ class RuntimeLoop:
             max_runtime_load=settings.TASK_EXECUTION_MAX_RUNTIME_LOAD,
             max_memory_mb=settings.TASK_EXECUTION_MAX_MEMORY_MB,
             max_concurrent_provider_calls=settings.PROVIDER_BRIDGE_MAX_CONCURRENT_CALLS,
+        )
+        self.status.mark_timeout_control_started(
+            enabled=self.timeout_control_enabled,
+            interval_seconds=self.interval_seconds,
+            max_concurrent_timeout_checks=(
+                settings.TIMEOUT_CONTROL_MAX_CONCURRENT_CHECKS
+            ),
+            max_tracking_duration_ms=(
+                settings.TIMEOUT_CONTROL_MAX_TRACKING_DURATION_SECONDS * 1000
+            ),
+            max_runtime_timeout_load=settings.TIMEOUT_CONTROL_MAX_RUNTIME_LOAD,
+            max_timeout_check_duration_ms=(
+                settings.TIMEOUT_CONTROL_MAX_CHECK_DURATION_MS
+            ),
         )
         self.status.mark_provider_bridge_started(
             enabled=self.provider_bridge_enabled,
@@ -295,6 +329,10 @@ class RuntimeLoop:
             "enabled" if self.execution_safety_enabled else "disabled",
         )
         logger.info(
+            "runtime_loop: timeout control %s",
+            "enabled" if self.timeout_control_enabled else "disabled",
+        )
+        logger.info(
             "runtime_loop: provider bridge %s",
             "enabled" if self.provider_bridge_enabled else "disabled",
         )
@@ -339,6 +377,11 @@ class RuntimeLoop:
                         self.status.mark_task_execution_error(str(exc), poll_duration_ms)
                     if self.execution_safety_enabled:
                         self.status.mark_execution_safety_error(str(exc), poll_duration_ms)
+                    if self.timeout_control_enabled:
+                        self.status.mark_timeout_control_error(
+                            str(exc),
+                            poll_duration_ms,
+                        )
                     if self.provider_bridge_enabled:
                         self.status.mark_provider_bridge_error(str(exc), poll_duration_ms)
                     if self.response_ingestion_enabled:

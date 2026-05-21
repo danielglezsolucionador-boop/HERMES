@@ -320,6 +320,37 @@ async def test_runtime_loop_records_execution_safety_metrics():
 
 
 @pytest.mark.asyncio
+async def test_runtime_loop_initializes_timeout_control_metrics():
+    async def two_discovered_tasks() -> TaskDiscoveryResult:
+        return TaskDiscoveryResult.from_count(2)
+
+    status = RuntimeStatus()
+    loop = RuntimeLoop(
+        status=status,
+        interval_seconds=0.01,
+        min_interval_seconds=0.01,
+        heartbeat_log_every=1000,
+        task_discovery=two_discovered_tasks,
+        timeout_control_enabled=True,
+    )
+
+    task = asyncio.create_task(loop.run())
+    await asyncio.sleep(0.03)
+    timeout_control = status.timeout_control_metrics()
+    loop.request_stop("test_stop")
+    await asyncio.wait_for(task, timeout=1)
+
+    assert timeout_control["timeout_control_enabled"] is True
+    assert timeout_control["timeout_control_status"] == "clear"
+    assert timeout_control["timeout_state"] == "ready"
+    assert timeout_control["timeout_checks_passed"] > 0
+    assert timeout_control["timeouts_detected"] == 0
+    assert timeout_control["active_timeout_checks"] == 0
+    assert timeout_control["max_concurrent_timeout_checks"] == 1
+    assert timeout_control["runtime_protected"] is True
+
+
+@pytest.mark.asyncio
 async def test_runtime_loop_initializes_response_ingestion_metrics():
     async def two_discovered_tasks() -> TaskDiscoveryResult:
         return TaskDiscoveryResult.from_count(2)

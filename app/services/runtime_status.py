@@ -182,6 +182,46 @@ class RuntimeStatus:
         self.execution_safety_task_id: str | None = None
         self.execution_safety_checked_at: str | None = None
         self.execution_safety_reasons: list[str] = []
+        self.timeout_control_started_at: datetime | None = None
+        self.last_timeout_control_at: datetime | None = None
+        self.timeout_control_iteration = 0
+        self.timeout_control_enabled = False
+        self.timeout_control_status = "stopped"
+        self.timeout_state: str | None = None
+        self.timeout_control_interval_seconds = 0.0
+        self.timeout_control_last_duration_ms = 0
+        self.timeout_control_errors = 0
+        self.timeout_control_last_error: str | None = None
+        self.timeout_checks_passed = 0
+        self.timeout_checks_rejected = 0
+        self.timeout_checks_failed = 0
+        self.timeouts_detected = 0
+        self.timeout_monitoring_allowed = True
+        self.timeout_runtime_protected = True
+        self.timeout_detected = False
+        self.timeout_registered = False
+        self.timeout_duration_tracking = False
+        self.timeout_linkage_valid = True
+        self.timeout_ownership_consistent = True
+        self.active_timeout_checks = 0
+        self.max_concurrent_timeout_checks = 0
+        self.runtime_timeout_load: float | None = None
+        self.max_runtime_timeout_load = 0.0
+        self.max_timeout_tracking_duration_ms = 0
+        self.max_timeout_check_duration_ms = 0
+        self.last_timeout_id: str | None = None
+        self.last_timeout_execution_id: str | None = None
+        self.last_timeout_task_id: str | None = None
+        self.last_timeout_runtime_id: str | None = None
+        self.last_timeout_runtime_owner: str | None = None
+        self.last_timeout_execution_state: str | None = None
+        self.last_timeout_execution_started_at: str | None = None
+        self.last_timeout_detected_at: str | None = None
+        self.last_timeout_checked_at: str | None = None
+        self.timeout_execution_duration_ms = 0
+        self.timeout_threshold_ms = 0
+        self.timeout_control_metadata: dict = {}
+        self.timeout_control_reasons: list[str] = []
         self.provider_bridge_started_at: datetime | None = None
         self.last_provider_bridge_at: datetime | None = None
         self.provider_bridge_iteration = 0
@@ -452,6 +492,7 @@ class RuntimeStatus:
         self.pickup_safety_status = "stopped"
         self.execution_status = "stopped"
         self.execution_safety_status = "stopped"
+        self.timeout_control_status = "stopped"
         self.provider_bridge_status = "stopped"
         self.response_ingestion_status = "stopped"
         self.response_validation_status = "stopped"
@@ -967,6 +1008,135 @@ class RuntimeStatus:
         self.execution_safety_allows_execution = False
         self.execution_safety_runtime_protected = True
         self.execution_safety_last_error = error or "unknown_execution_safety_error"
+
+    def mark_timeout_control_started(
+        self,
+        enabled: bool,
+        interval_seconds: float,
+        max_concurrent_timeout_checks: int = 0,
+        max_tracking_duration_ms: int = 0,
+        max_runtime_timeout_load: float = 0.0,
+        max_timeout_check_duration_ms: int = 0,
+    ) -> None:
+        self.timeout_control_started_at = datetime.now(timezone.utc)
+        self.timeout_control_enabled = bool(enabled)
+        self.timeout_control_status = "active" if enabled else "disabled"
+        self.timeout_state = "ready" if enabled else "disabled"
+        self.timeout_control_interval_seconds = interval_seconds
+        self.max_concurrent_timeout_checks = max(
+            0,
+            int(max_concurrent_timeout_checks or 0),
+        )
+        self.max_timeout_tracking_duration_ms = max(
+            0,
+            int(max_tracking_duration_ms or 0),
+        )
+        self.max_runtime_timeout_load = max(
+            0.0,
+            float(max_runtime_timeout_load or 0.0),
+        )
+        self.max_timeout_check_duration_ms = max(
+            0,
+            int(max_timeout_check_duration_ms or 0),
+        )
+        self.timeout_control_last_error = None
+
+    def mark_timeout_control_result(self, result: dict) -> None:
+        self.last_timeout_control_at = datetime.now(timezone.utc)
+        self.timeout_control_iteration += 1
+        self.timeout_control_status = result.get("status") or "unknown"
+        self.timeout_state = result.get("timeout_state")
+        self.timeout_control_last_duration_ms = max(
+            0,
+            int(result.get("timeout_check_duration_ms") or 0),
+        )
+        self.timeout_monitoring_allowed = bool(
+            result.get("monitoring_allowed")
+        )
+        self.timeout_runtime_protected = bool(
+            result.get("runtime_protected", True)
+        )
+        self.timeout_detected = bool(result.get("timeout_detected"))
+        self.timeout_registered = bool(result.get("timeout_registered"))
+        self.timeout_duration_tracking = bool(result.get("duration_tracking"))
+        self.timeout_linkage_valid = bool(result.get("linkage_valid", True))
+        self.timeout_ownership_consistent = bool(
+            result.get("ownership_consistent", True)
+        )
+        self.active_timeout_checks = max(
+            0,
+            int(result.get("active_timeout_checks") or 0),
+        )
+        self.max_concurrent_timeout_checks = max(
+            0,
+            int(result.get("max_concurrent_timeout_checks") or 0),
+        )
+        runtime_load = result.get("runtime_timeout_load")
+        self.runtime_timeout_load = (
+            float(runtime_load) if runtime_load is not None else None
+        )
+        self.max_runtime_timeout_load = max(
+            0.0,
+            float(result.get("max_runtime_timeout_load") or 0.0),
+        )
+        self.max_timeout_tracking_duration_ms = max(
+            0,
+            int(result.get("max_tracking_duration_ms") or 0),
+        )
+        self.max_timeout_check_duration_ms = max(
+            0,
+            int(result.get("max_timeout_check_duration_ms") or 0),
+        )
+        self.last_timeout_id = result.get("timeout_id")
+        self.last_timeout_execution_id = result.get("execution_id")
+        self.last_timeout_task_id = result.get("task_id")
+        self.last_timeout_runtime_id = result.get("runtime_id")
+        self.last_timeout_runtime_owner = result.get("runtime_owner")
+        self.last_timeout_execution_state = result.get("execution_state")
+        self.last_timeout_execution_started_at = result.get(
+            "execution_started_at"
+        )
+        self.last_timeout_detected_at = result.get("detected_at")
+        self.last_timeout_checked_at = result.get("checked_at")
+        self.timeout_execution_duration_ms = max(
+            0,
+            int(result.get("current_runtime_duration_ms") or 0),
+        )
+        self.timeout_threshold_ms = max(
+            0,
+            int(result.get("timeout_threshold_ms") or 0),
+        )
+        self.timeout_control_metadata = dict(result.get("metadata") or {})
+        self.timeout_control_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.timeout_control_last_error = result.get("error")
+
+        if self.timeout_control_status in {"clear", "tracking"}:
+            self.timeout_checks_passed += 1
+        elif self.timeout_control_status == "timeout_detected":
+            self.timeouts_detected += 1
+        elif self.timeout_control_status == "rejected":
+            self.timeout_checks_rejected += 1
+        elif self.timeout_control_status == "error":
+            self.timeout_checks_failed += 1
+            self.timeout_control_errors += 1
+
+    def mark_timeout_control_error(
+        self,
+        error: str,
+        duration_ms: int = 0,
+    ) -> None:
+        self.last_timeout_control_at = datetime.now(timezone.utc)
+        self.timeout_control_iteration += 1
+        self.timeout_control_last_duration_ms = max(0, int(duration_ms or 0))
+        self.timeout_control_errors += 1
+        self.timeout_checks_failed += 1
+        self.timeout_control_status = "error"
+        self.timeout_state = "error"
+        self.timeout_monitoring_allowed = False
+        self.timeout_runtime_protected = True
+        self.timeout_control_last_error = error or "unknown_timeout_control_error"
 
     def mark_provider_bridge_started(
         self,
@@ -1720,6 +1890,59 @@ class RuntimeStatus:
             "reasons": list(self.execution_safety_reasons),
         }
 
+    def timeout_control_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "started_at": fmt(self.timeout_control_started_at),
+            "last_timeout_control_at": fmt(self.last_timeout_control_at),
+            "timeout_control_iteration": self.timeout_control_iteration,
+            "timeout_control_enabled": self.timeout_control_enabled,
+            "timeout_control_status": self.timeout_control_status,
+            "timeout_state": self.timeout_state,
+            "timeout_control_interval_seconds": (
+                self.timeout_control_interval_seconds
+            ),
+            "timeout_control_last_duration_ms": (
+                self.timeout_control_last_duration_ms
+            ),
+            "timeout_control_errors": self.timeout_control_errors,
+            "timeout_control_last_error": self.timeout_control_last_error,
+            "timeout_checks_passed": self.timeout_checks_passed,
+            "timeout_checks_rejected": self.timeout_checks_rejected,
+            "timeout_checks_failed": self.timeout_checks_failed,
+            "timeouts_detected": self.timeouts_detected,
+            "monitoring_allowed": self.timeout_monitoring_allowed,
+            "runtime_protected": self.timeout_runtime_protected,
+            "timeout_detected": self.timeout_detected,
+            "timeout_registered": self.timeout_registered,
+            "duration_tracking": self.timeout_duration_tracking,
+            "linkage_valid": self.timeout_linkage_valid,
+            "ownership_consistent": self.timeout_ownership_consistent,
+            "active_timeout_checks": self.active_timeout_checks,
+            "max_concurrent_timeout_checks": self.max_concurrent_timeout_checks,
+            "runtime_timeout_load": self.runtime_timeout_load,
+            "max_runtime_timeout_load": self.max_runtime_timeout_load,
+            "max_tracking_duration_ms": self.max_timeout_tracking_duration_ms,
+            "max_timeout_check_duration_ms": self.max_timeout_check_duration_ms,
+            "timeout_id": self.last_timeout_id,
+            "execution_id": self.last_timeout_execution_id,
+            "task_id": self.last_timeout_task_id,
+            "runtime_id": self.last_timeout_runtime_id,
+            "runtime_owner": self.last_timeout_runtime_owner,
+            "execution_state": self.last_timeout_execution_state,
+            "execution_started_at": self.last_timeout_execution_started_at,
+            "detected_at": self.last_timeout_detected_at,
+            "checked_at": self.last_timeout_checked_at,
+            "current_runtime_duration_ms": (
+                self.timeout_execution_duration_ms
+            ),
+            "timeout_threshold_ms": self.timeout_threshold_ms,
+            "metadata": dict(self.timeout_control_metadata),
+            "reasons": list(self.timeout_control_reasons),
+        }
+
     def provider_bridge_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -1944,6 +2167,7 @@ class RuntimeStatus:
             "pickup_safety": self.pickup_safety_metrics(),
             "execution": self.execution_metrics(),
             "execution_safety": self.execution_safety_metrics(),
+            "timeout_control": self.timeout_control_metrics(),
             "provider_bridge": self.provider_bridge_metrics(),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
