@@ -256,3 +256,63 @@ async def test_provider_bridge_contains_timeout():
     assert result.success is False
     assert "provider_timeout" in result.reasons
     assert bridge.visibility()["active_provider_calls"] == 0
+
+
+@pytest.mark.asyncio
+async def test_provider_bridge_tracks_connection_lifecycle_and_usage():
+    provider = FakeProvider()
+    bridge = _bridge(provider)
+
+    result = await bridge.send(
+        ProviderBridgeRequest(
+            execution=_execution_context(),
+            prompt="hello",
+            max_tokens=32,
+        ),
+    )
+
+    assert result.status == "completed"
+    assert result.provider_session_id
+    assert result.connection_status == "closed"
+    assert result.failure_status is None
+    assert result.context.provider_session_id == result.provider_session_id
+    assert result.connection is not None
+    assert result.connection.input_tokens == 3
+    assert result.connection.output_tokens == 2
+    assert result.connection.total_tokens == 5
+    assert result.connection_states == (
+        "connecting",
+        "connected",
+        "executing",
+        "waiting_response",
+        "closed",
+    )
+
+    visibility = bridge.visibility()
+    assert visibility["active_provider_sessions"] == 0
+    assert visibility["provider_session_id"] == result.provider_session_id
+    assert visibility["connection_status"] == "closed"
+
+
+@pytest.mark.asyncio
+async def test_provider_bridge_connection_preserves_failure_context():
+    provider = FakeProvider(
+        health={
+            "available": False,
+            "configured": False,
+            "last_error": "missing api key",
+        }
+    )
+    bridge = _bridge(provider)
+
+    result = await bridge.send(
+        ProviderBridgeRequest(execution=_execution_context(), prompt="hello"),
+    )
+
+    assert result.status == "rejected"
+    assert result.provider_session_id
+    assert result.connection_status == "failed"
+    assert "provider_not_configured" in result.failure_status
+    assert result.context.provider_session_id == result.provider_session_id
+    assert result.connection_states == ("connecting", "failed")
+    assert bridge.visibility()["active_provider_sessions"] == 0

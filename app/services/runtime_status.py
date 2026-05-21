@@ -407,6 +407,7 @@ class RuntimeStatus:
         self.provider_timeouts = 0
         self.provider_invalid_responses = 0
         self.active_provider_calls = 0
+        self.active_provider_sessions = 0
         self.max_concurrent_provider_calls = 0
         self.max_provider_requests_per_minute = 0
         self.provider_requests_in_window = 0
@@ -416,6 +417,10 @@ class RuntimeStatus:
         self.max_provider_response_bytes = 0
         self.provider_response_size_bytes = 0
         self.provider_name: str | None = None
+        self.provider_session_id: str | None = None
+        self.provider_connection_status: str | None = None
+        self.provider_failure_status: str | None = None
+        self.provider_connection_states: list[str] = []
         self.provider_model: str | None = None
         self.provider_request_id: str | None = None
         self.provider_execution_id: str | None = None
@@ -424,6 +429,9 @@ class RuntimeStatus:
         self.provider_finished_at: str | None = None
         self.provider_duration_ms = 0
         self.provider_usage: dict = {}
+        self.provider_input_tokens = 0
+        self.provider_output_tokens = 0
+        self.provider_total_tokens = 0
         self.provider_bridge_reasons: list[str] = []
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
@@ -1898,6 +1906,10 @@ class RuntimeStatus:
         self.max_provider_request_bytes = max(0, int(max_request_bytes or 0))
         self.provider_timeout_seconds = max(0.0, float(timeout_seconds or 0.0))
         self.max_provider_response_bytes = max(0, int(max_response_bytes or 0))
+        self.active_provider_sessions = 0
+        self.provider_connection_status = "idle" if enabled else "disabled"
+        self.provider_failure_status = None
+        self.provider_connection_states = []
         self.provider_bridge_last_error = None
 
     def mark_provider_bridge_result(self, result: dict) -> None:
@@ -1911,6 +1923,10 @@ class RuntimeStatus:
         self.active_provider_calls = max(
             0,
             int(result.get("active_provider_calls") or 0),
+        )
+        self.active_provider_sessions = max(
+            0,
+            int(result.get("active_provider_sessions") or 0),
         )
         self.max_concurrent_provider_calls = max(
             0,
@@ -1945,6 +1961,12 @@ class RuntimeStatus:
             int(result.get("response_size_bytes") or 0),
         )
         self.provider_name = result.get("provider_name")
+        self.provider_session_id = result.get("provider_session_id")
+        self.provider_connection_status = result.get("connection_status")
+        self.provider_failure_status = result.get("failure_status")
+        self.provider_connection_states = [
+            str(state) for state in (result.get("connection_states") or [])
+        ]
         self.provider_model = result.get("model")
         self.provider_request_id = result.get("request_id")
         self.provider_execution_id = result.get("execution_id")
@@ -1956,6 +1978,17 @@ class RuntimeStatus:
             int(result.get("provider_duration_ms") or 0),
         )
         self.provider_usage = dict(result.get("usage") or {})
+        self.provider_input_tokens = max(
+            0,
+            int(self.provider_usage.get("input_tokens") or 0),
+        )
+        self.provider_output_tokens = max(
+            0,
+            int(self.provider_usage.get("output_tokens") or 0),
+        )
+        self.provider_total_tokens = (
+            self.provider_input_tokens + self.provider_output_tokens
+        )
         self.provider_bridge_reasons = [
             str(reason) for reason in (result.get("reasons") or [])
         ]
@@ -1981,6 +2014,8 @@ class RuntimeStatus:
         self.provider_bridge_last_duration_ms = max(0, int(duration_ms or 0))
         self.provider_bridge_errors += 1
         self.provider_bridge_status = "error"
+        self.provider_connection_status = "failed"
+        self.provider_failure_status = error or "unknown_provider_bridge_error"
         self.provider_bridge_last_error = error or "unknown_provider_bridge_error"
 
     def mark_response_ingestion_started(
@@ -2961,6 +2996,7 @@ class RuntimeStatus:
             "provider_timeouts": self.provider_timeouts,
             "provider_invalid_responses": self.provider_invalid_responses,
             "active_provider_calls": self.active_provider_calls,
+            "active_provider_sessions": self.active_provider_sessions,
             "max_concurrent_provider_calls": self.max_concurrent_provider_calls,
             "max_requests_per_minute": self.max_provider_requests_per_minute,
             "requests_in_window": self.provider_requests_in_window,
@@ -2970,6 +3006,10 @@ class RuntimeStatus:
             "max_response_bytes": self.max_provider_response_bytes,
             "response_size_bytes": self.provider_response_size_bytes,
             "provider_name": self.provider_name,
+            "provider_session_id": self.provider_session_id,
+            "connection_status": self.provider_connection_status,
+            "failure_status": self.provider_failure_status,
+            "connection_states": list(self.provider_connection_states),
             "model": self.provider_model,
             "request_id": self.provider_request_id,
             "execution_id": self.provider_execution_id,
@@ -2978,6 +3018,9 @@ class RuntimeStatus:
             "finished_request_at": self.provider_finished_at,
             "provider_duration_ms": self.provider_duration_ms,
             "usage": dict(self.provider_usage),
+            "input_tokens": self.provider_input_tokens,
+            "output_tokens": self.provider_output_tokens,
+            "total_tokens": self.provider_total_tokens,
             "reasons": list(self.provider_bridge_reasons),
         }
 
