@@ -5,8 +5,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.runner.runtime_loop import RuntimeLoop
+from app.ai.providers.base import AIProvider
 from app.runner.pickup_safety import PickupSafetyResult
+from app.runner.prompt_execution import PromptExecutionRuntime
+from app.runner.provider_bridge import ProviderBridge
+from app.runner.runtime_loop import RuntimeLoop
 from app.runner.task_claiming import TaskClaimingResult
 from app.runner.task_discovery import TaskDiscoveryResult
 from app.schemas.task import TaskStatus
@@ -532,6 +535,174 @@ async def test_runtime_loop_blocks_ai_task_when_provider_bridge_disabled():
     assert execution["executions_rejected"] == 1
     assert execution["execution_status"] == "rejected"
     assert execution["task_id"] == str(task_id)
+
+
+@pytest.mark.asyncio
+async def test_runtime_loop_executes_ai_task_through_provider_bridge_when_enabled():
+    task_id = uuid.uuid4()
+    claimed_task = SimpleNamespace(
+        id=task_id,
+        title="provider bridge runtime canary",
+        description="run provider bridge",
+        status=TaskStatus.claimed.value,
+        phase="canary",
+        payload={
+            "provider": "openrouter",
+            "agent": "deepseek",
+            "prompt": "Return provider bridge OK.",
+            "max_tokens": 64,
+        },
+        retry_count=0,
+        max_retries=1,
+        runner_id="hermes-runner",
+        runtime_id="hermes-runtime",
+        claim_state="claimed",
+        claimed_at=datetime.now(timezone.utc),
+    )
+    events = []
+
+    async def one_discovered_task() -> TaskDiscoveryResult:
+        return TaskDiscoveryResult.from_count(1)
+
+    async def claims_one_task(discovery: TaskDiscoveryResult) -> TaskClaimingResult:
+        return TaskClaimingResult(
+            status="claimed",
+            runner_id="hermes-runner",
+            runtime_id="hermes-runtime",
+            task_id=str(task_id),
+            task_title=claimed_task.title,
+            claimed_at=claimed_task.claimed_at.isoformat(),
+            claim_state="claimed",
+        )
+
+    async def fail_default_executor(task):
+        raise AssertionError("AI task should use provider bridge path")
+
+    async def load_claimed_task(loaded_task_id: str):
+        assert loaded_task_id == str(task_id)
+        return claimed_task
+
+    async def mark_task_doing(task):
+        task.status = TaskStatus.doing.value
+        events.append(("doing", str(task.id)))
+
+    async def persist_success(task, result):
+        events.append(
+            (
+                "success",
+                str(task.id),
+                result["executor"],
+                result["provider"],
+                result["provider_request_id"],
+            )
+        )
+
+    class FakeProvider(AIProvider):
+        def __init__(self) -> None:
+            self.calls = 0
+            self.last_prompt: str | None = None
+
+        @property
+        def provider_name(self) -> str:
+            return "openrouter"
+
+        async def healthcheck(self) -> dict:
+            return {
+                "available": True,
+                "configured": True,
+                "last_error": None,
+                "timeout_support": True,
+            }
+
+        async def generate(
+            self,
+            prompt: str,
+            system_prompt: str | None = None,
+            max_tokens: int = 1024,
+        ) -> dict:
+            self.calls += 1
+            self.last_prompt = prompt
+            return {
+                "success": True,
+                "content": "Provider bridge OK.",
+                "model": "fake-model",
+                "usage": {"input_tokens": 2, "output_tokens": 3},
+                "duration_ms": 7,
+                "error": None,
+                "error_type": None,
+            }
+
+    fake_provider = FakeProvider()
+    provider_bridge = ProviderBridge(
+        provider_resolver=lambda provider_name: fake_provider,
+        max_requests_per_minute=5,
+        max_request_bytes=8192,
+        timeout_seconds=25,
+        max_concurrent_calls=1,
+        max_response_bytes=32768,
+        max_tokens=128,
+    )
+
+    status = RuntimeStatus()
+    loop = RuntimeLoop(
+        status=status,
+        interval_seconds=0.01,
+        min_interval_seconds=0.01,
+        heartbeat_log_every=1000,
+        task_discovery=one_discovered_task,
+        task_claiming=claims_one_task,
+        task_executor=fail_default_executor,
+        prompt_execution=PromptExecutionRuntime(
+            provider_bridge=provider_bridge,
+            status=status,
+        ),
+        claiming_enabled=True,
+        execution_enabled=True,
+        provider_bridge_enabled=True,
+    )
+    loop._load_claimed_task = load_claimed_task
+
+    async def no_claimed_task():
+        return None
+
+    loop._load_next_claimed_task = no_claimed_task
+    loop._mark_task_doing = mark_task_doing
+    loop._persist_execution_success = persist_success
+
+    await loop._cycle()
+
+    provider_bridge_metrics = status.provider_bridge_metrics()
+    prompt_execution = status.prompt_execution_metrics()
+    execution = status.execution_metrics()
+    assert fake_provider.calls == 1
+    assert fake_provider.last_prompt is not None
+    assert "Return provider bridge OK." in fake_provider.last_prompt
+    assert events == [
+        (
+            "doing",
+            str(task_id),
+        ),
+        (
+            "success",
+            str(task_id),
+            "ai",
+            "openrouter",
+            provider_bridge_metrics["request_id"],
+        ),
+    ]
+    assert provider_bridge_metrics["provider_bridge_status"] == "completed"
+    assert provider_bridge_metrics["provider_requests_completed"] == 1
+    assert provider_bridge_metrics["provider_name"] == "openrouter"
+    assert provider_bridge_metrics["request_id"]
+    assert provider_bridge_metrics["provider_session_id"]
+    assert provider_bridge_metrics["connection_status"] == "closed"
+    assert prompt_execution["prompt_execution_status"] == "completed"
+    assert prompt_execution["prompt_executions_completed"] == 1
+    assert prompt_execution["provider_name"] == "openrouter"
+    assert prompt_execution["provider_session_id"] == (
+        provider_bridge_metrics["provider_session_id"]
+    )
+    assert execution["execution_status"] == "completed"
 
 
 @pytest.mark.asyncio

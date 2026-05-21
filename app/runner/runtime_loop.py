@@ -17,6 +17,7 @@ from uuid import UUID
 
 from sqlalchemy import func, select
 
+from app.ai.guardrails import guardrails
 from app.core.config import settings
 from app.db.engine import AsyncSessionLocal
 from app.models.task import Task
@@ -34,6 +35,11 @@ from app.runner.orchestration_foundation import (
 from app.runner.orchestration_safety import (
     OrchestrationSafety,
     OrchestrationSafetyResult,
+)
+from app.runner.prompt_execution import (
+    PROMPT_TYPE_EXECUTION,
+    PromptExecutionRequest,
+    PromptExecutionRuntime,
 )
 from app.runner.response_ingestion import ResponseIngestionRuntime
 from app.runner.response_safety import ResponseSafetyRuntime
@@ -68,6 +74,7 @@ class RuntimeLoop:
         task_discovery: Callable[[], Awaitable[TaskDiscoveryResult]] | None = None,
         task_claiming: Callable[[TaskDiscoveryResult], Awaitable[TaskClaimingResult]] | None = None,
         task_executor: Callable[[Task], Awaitable[dict[str, Any]]] | None = None,
+        prompt_execution: PromptExecutionRuntime | None = None,
         pickup_safety: Callable[[], Awaitable[PickupSafetyResult]] | None = None,
         execution_session: Callable[[], Awaitable[ExecutionSessionResult]] | None = None,
         execution_safety: Callable[[], Awaitable[ExecutionSafetyResult]] | None = None,
@@ -121,6 +128,9 @@ class RuntimeLoop:
         self.execution_enabled = bool(execution_enabled)
         self.task_execution_runtime = TaskExecutionRuntime()
         self.task_executor = task_executor or execute_task
+        self.prompt_execution_runtime = prompt_execution or PromptExecutionRuntime(
+            status=self.status
+        )
         self.execution_safety_enabled = bool(execution_safety_enabled)
         self.execution_safety = execution_safety or ExecutionSafety().inspect
         self.timeout_control_enabled = bool(timeout_control_enabled)
@@ -320,7 +330,10 @@ class RuntimeLoop:
         self.status.mark_task_started(str(task.id), task.title)
         try:
             await self._mark_task_doing(task)
-            result = await self.task_executor(task)
+            if self._task_requires_provider(task):
+                result = await self._execute_provider_task(task, started.context)
+            else:
+                result = await self.task_executor(task)
             await self._persist_execution_success(task, result)
             completed = self.task_execution_runtime.complete(started.context)
             self.status.mark_task_execution_result(completed.to_dict())
@@ -481,6 +494,124 @@ class RuntimeLoop:
     def _task_requires_provider(self, task: Task) -> bool:
         payload = task.payload if isinstance(task.payload, dict) else {}
         return is_ai_task_payload(payload)
+
+    async def _execute_provider_task(
+        self,
+        task: Task,
+        execution_context,
+    ) -> dict[str, Any]:
+        payload = task.payload if isinstance(task.payload, dict) else {}
+        prompt = str(payload.get("prompt") or task.description or task.title)
+        max_tokens = self._payload_int(
+            payload.get("max_tokens"),
+            default=min(512, settings.PROVIDER_BRIDGE_MAX_TOKENS),
+        )
+        request = PromptExecutionRequest(
+            execution=execution_context,
+            objective=prompt,
+            prompt_type=PROMPT_TYPE_EXECUTION,
+            context_data=self._provider_task_context(task, payload),
+            execution_limits=(
+                "Use only the provided Hermes task and runtime context.",
+                "Do not execute external actions or mutate systems.",
+                "Return bounded operational output.",
+            ),
+            expected_output=str(
+                payload.get("expected_output")
+                or "Short operational response for this task."
+            ),
+            validation_rules=(
+                "Response must be non-empty.",
+                "Response must stay within the task objective.",
+                "Response must not claim database access or external actions.",
+            ),
+            audit_requirements=(
+                "Preserve execution_id, task_id, provider, and request traceability.",
+            ),
+            provider_name=self._provider_name_from_payload(payload),
+            max_tokens=max_tokens,
+            metadata={
+                "source": "runtime_loop",
+                "task_id": str(task.id),
+                "phase": task.phase,
+            },
+        )
+        result = await self.prompt_execution_runtime.execute(
+            request,
+            runtime_active=not self._stop_requested,
+            execution_permitted=self.provider_bridge_enabled,
+        )
+        if result.provider_result is not None:
+            self.status.mark_provider_bridge_result(
+                result.provider_result.to_dict()
+            )
+        if not result.success:
+            reason = result.error or ",".join(result.reasons) or result.status
+            raise RuntimeError(f"Provider task failed: {reason}")
+        guardrail_result = guardrails.validate_response(result.output or "")
+        if guardrail_result.get("blocked"):
+            reason = guardrail_result.get("reason") or "guardrail_blocked"
+            raise RuntimeError(f"Provider task blocked by guardrails: {reason}")
+
+        return {
+            "executed": True,
+            "task_id": str(task.id),
+            "executor": "ai",
+            "duration_ms": result.duration_ms,
+            "provider": result.provider_name,
+            "model": result.provider_result.model if result.provider_result else None,
+            "response": guardrail_result.get("response") or result.output,
+            "guardrail_blocked": False,
+            "guardrail_reason": guardrail_result.get("reason"),
+            "prompt_execution_id": result.prompt_execution_id,
+            "provider_session_id": result.provider_session_id,
+            "provider_request_id": result.request_id,
+            "usage": result.usage,
+            "message": "AI task ejecutada correctamente",
+        }
+
+    def _provider_task_context(
+        self,
+        task: Task,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {
+            "task": {
+                "id": str(task.id),
+                "title": task.title,
+                "description": task.description,
+                "phase": task.phase,
+                "status": task.status,
+                "retry_count": int(task.retry_count or 0),
+                "max_retries": int(task.max_retries or 0),
+            },
+            "runtime": {
+                "runner_id": self.task_execution_runtime.runner_id,
+                "runtime_id": self.task_execution_runtime.runtime_id,
+                "runtime_owner": self.task_execution_runtime.runtime_owner,
+            },
+            "payload": {
+                key: value
+                for key, value in payload.items()
+                if key not in {"prompt", "system_prompt"}
+            },
+        }
+
+    def _provider_name_from_payload(self, payload: dict[str, Any]) -> str | None:
+        for key in ("provider", "agent"):
+            value = str(payload.get(key) or "").strip().lower()
+            if value in {"openrouter", "claude"}:
+                return value
+        return None
+
+    def _payload_int(self, value: Any, default: int) -> int:
+        try:
+            return max(
+                1,
+                min(int(value or default), settings.PROVIDER_BRIDGE_MAX_TOKENS),
+            )
+        except (TypeError, ValueError):
+            return max(1, int(default))
 
     def _execution_rejected_result(
         self,
