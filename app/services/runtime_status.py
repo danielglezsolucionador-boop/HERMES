@@ -907,6 +907,45 @@ class RuntimeStatus:
         self.continuation_safety_reasons: list[str] = []
         self.continuation_safety_last_error: str | None = None
         self.continuation_safety_metadata: dict = {}
+        self.last_operational_memory_at: datetime | None = None
+        self.operational_memory_iteration = 0
+        self.operational_memory_status = "stopped"
+        self.memories_captured = 0
+        self.memories_retrieved = 0
+        self.memories_blocked = 0
+        self.operational_memory_errors = 0
+        self.last_memory_id: str | None = None
+        self.memory_execution_id: str | None = None
+        self.memory_task_id: str | None = None
+        self.memory_type: str | None = None
+        self.memory_workflow: str | None = None
+        self.memory_event_type: str | None = None
+        self.memory_governance_status: str | None = None
+        self.memory_audit_status: str | None = None
+        self.memory_risk_level: str | None = None
+        self.memory_context: dict = {}
+        self.memory_record: dict = {}
+        self.memory_records: list[dict] = []
+        self.memory_reusable_context: dict = {}
+        self.memory_integrity_valid = False
+        self.memory_context_safe = False
+        self.memory_governance_safe = False
+        self.memory_traceability_preserved = False
+        self.memory_reuse_allowed = False
+        self.memory_critical_preserved = False
+        self.memory_matched_records = 0
+        self.memory_corrupt_records = 0
+        self.memory_errors: list[str] = []
+        self.memory_warnings: list[str] = []
+        self.memory_governance_history: list[dict] = []
+        self.memory_audit_history: list[dict] = []
+        self.memory_workflow_history: list[dict] = []
+        self.memory_continuation_history: list[dict] = []
+        self.memory_lifecycle: list[dict] = []
+        self.operational_memory_duration_ms = 0
+        self.operational_memory_reasons: list[str] = []
+        self.operational_memory_last_error: str | None = None
+        self.operational_memory_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -3530,6 +3569,97 @@ class RuntimeStatus:
         else:
             self.continuation_safety_errors += 1
 
+    def mark_operational_memory_result(self, result: dict) -> None:
+        self.last_operational_memory_at = datetime.now(timezone.utc)
+        self.operational_memory_iteration += 1
+        self.operational_memory_status = result.get("status") or "unknown"
+        self.last_memory_id = result.get("memory_id")
+        self.memory_execution_id = result.get("execution_id")
+        self.memory_task_id = result.get("task_id")
+        self.memory_type = result.get("memory_type")
+        self.memory_workflow = result.get("workflow")
+        self.memory_event_type = result.get("event_type")
+        self.memory_governance_status = result.get("governance_status")
+        self.memory_audit_status = result.get("audit_status")
+        self.memory_risk_level = result.get("risk_level")
+        self.memory_context = dict(result.get("memory_context") or {})
+        self.memory_record = dict(result.get("memory_record") or {})
+        self.memory_records = [
+            dict(record)
+            for record in (result.get("memory_records") or [])
+            if isinstance(record, dict)
+        ]
+        self.memory_reusable_context = dict(
+            result.get("reusable_context") or {}
+        )
+        self.memory_integrity_valid = bool(result.get("integrity_valid"))
+        self.memory_context_safe = bool(result.get("context_safe"))
+        self.memory_governance_safe = bool(result.get("governance_safe"))
+        self.memory_traceability_preserved = bool(
+            result.get("traceability_preserved")
+        )
+        self.memory_reuse_allowed = bool(result.get("reuse_allowed"))
+        self.memory_critical_preserved = bool(
+            result.get("critical_memory_preserved")
+        )
+        self.memory_matched_records = max(
+            0,
+            int(result.get("matched_records") or 0),
+        )
+        self.memory_corrupt_records = max(
+            0,
+            int(result.get("corrupt_records") or 0),
+        )
+        self.memory_errors = [
+            str(item) for item in (result.get("errors") or [])
+        ]
+        self.memory_warnings = [
+            str(item) for item in (result.get("warnings") or [])
+        ]
+        self.memory_governance_history = [
+            dict(entry)
+            for entry in (result.get("governance_history") or [])
+            if isinstance(entry, dict)
+        ]
+        self.memory_audit_history = [
+            dict(entry)
+            for entry in (result.get("audit_history") or [])
+            if isinstance(entry, dict)
+        ]
+        self.memory_workflow_history = [
+            dict(entry)
+            for entry in (result.get("workflow_history") or [])
+            if isinstance(entry, dict)
+        ]
+        self.memory_continuation_history = [
+            dict(entry)
+            for entry in (result.get("continuation_history") or [])
+            if isinstance(entry, dict)
+        ]
+        self.memory_lifecycle = [
+            dict(entry)
+            for entry in (result.get("memory_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.operational_memory_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.operational_memory_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.operational_memory_last_error = result.get("error")
+        self.operational_memory_metadata = dict(result.get("metadata") or {})
+
+        if self.operational_memory_status == "captured":
+            self.memories_captured += 1
+        elif self.operational_memory_status == "retrieved":
+            self.memories_retrieved += 1
+        elif self.operational_memory_status == "blocked":
+            self.memories_blocked += 1
+        else:
+            self.operational_memory_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -5257,6 +5387,66 @@ class RuntimeStatus:
             "metadata": dict(self.continuation_safety_metadata),
         }
 
+    def operational_memory_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_operational_memory_at": fmt(
+                self.last_operational_memory_at
+            ),
+            "operational_memory_iteration": self.operational_memory_iteration,
+            "operational_memory_status": self.operational_memory_status,
+            "memories_captured": self.memories_captured,
+            "memories_retrieved": self.memories_retrieved,
+            "memories_blocked": self.memories_blocked,
+            "operational_memory_errors": self.operational_memory_errors,
+            "memory_id": self.last_memory_id,
+            "execution_id": self.memory_execution_id,
+            "task_id": self.memory_task_id,
+            "memory_type": self.memory_type,
+            "workflow": self.memory_workflow,
+            "event_type": self.memory_event_type,
+            "governance_status": self.memory_governance_status,
+            "audit_status": self.memory_audit_status,
+            "risk_level": self.memory_risk_level,
+            "memory_context": dict(self.memory_context),
+            "memory_record": dict(self.memory_record),
+            "memory_records": [
+                dict(record) for record in self.memory_records
+            ],
+            "reusable_context": dict(self.memory_reusable_context),
+            "integrity_valid": self.memory_integrity_valid,
+            "context_safe": self.memory_context_safe,
+            "governance_safe": self.memory_governance_safe,
+            "traceability_preserved": self.memory_traceability_preserved,
+            "reuse_allowed": self.memory_reuse_allowed,
+            "critical_memory_preserved": self.memory_critical_preserved,
+            "matched_records": self.memory_matched_records,
+            "corrupt_records": self.memory_corrupt_records,
+            "errors": list(self.memory_errors),
+            "warnings": list(self.memory_warnings),
+            "governance_history": [
+                dict(entry) for entry in self.memory_governance_history
+            ],
+            "audit_history": [
+                dict(entry) for entry in self.memory_audit_history
+            ],
+            "workflow_history": [
+                dict(entry) for entry in self.memory_workflow_history
+            ],
+            "continuation_history": [
+                dict(entry) for entry in self.memory_continuation_history
+            ],
+            "memory_lifecycle": [
+                dict(entry) for entry in self.memory_lifecycle
+            ],
+            "duration_ms": self.operational_memory_duration_ms,
+            "reasons": list(self.operational_memory_reasons),
+            "last_error": self.operational_memory_last_error,
+            "metadata": dict(self.operational_memory_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -5463,6 +5653,7 @@ class RuntimeStatus:
             "execution_resume": self.execution_resume_metrics(),
             "workflow_chaining": self.workflow_chaining_metrics(),
             "continuation_safety": self.continuation_safety_metrics(),
+            "operational_memory": self.operational_memory_metrics(),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
             "response_safety": self.response_safety_metrics(),
