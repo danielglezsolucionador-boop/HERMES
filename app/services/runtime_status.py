@@ -1442,6 +1442,39 @@ class RuntimeStatus:
         self.vulcan_scope_enforcement_reasons: list[str] = []
         self.vulcan_scope_enforcement_last_error: str | None = None
         self.vulcan_scope_enforcement_metadata: dict = {}
+        self.last_vulcan_execution_handoff_at: datetime | None = None
+        self.vulcan_execution_handoff_iteration = 0
+        self.vulcan_execution_handoff_status = "stopped"
+        self.vulcan_execution_handoff_generated = 0
+        self.vulcan_execution_handoff_blocked = 0
+        self.vulcan_execution_handoff_errors = 0
+        self.vulcan_handoff_id: str | None = None
+        self.vulcan_handoff_subphase_id: str | None = None
+        self.vulcan_handoff_execution_objective: str | None = None
+        self.vulcan_handoff_modified_files: list[str] = []
+        self.vulcan_handoff_implementation_summary: list[str] = []
+        self.vulcan_handoff_validations_executed: list[str] = []
+        self.vulcan_handoff_tests_executed: list[str] = []
+        self.vulcan_handoff_risks_detected: list[str] = []
+        self.vulcan_handoff_blocking_conditions: list[str] = []
+        self.vulcan_handoff_not_implemented: list[str] = []
+        self.vulcan_handoff_operational_status: str | None = None
+        self.vulcan_handoff_governance_status: str | None = None
+        self.vulcan_handoff_execution_continuity: str | None = None
+        self.vulcan_handoff_traceability_preserved = False
+        self.vulcan_handoff_runtime_reporting_preserved = False
+        self.vulcan_handoff_governance_consistency_preserved = False
+        self.vulcan_handoff_validations_honest = False
+        self.vulcan_handoff_risks_reported = False
+        self.vulcan_handoff_blocking_conditions_reported = False
+        self.vulcan_handoff_complete = False
+        self.vulcan_handoff_text: str | None = None
+        self.vulcan_handoff_report_payload: dict = {}
+        self.vulcan_handoff_lifecycle: list[dict] = []
+        self.vulcan_execution_handoff_duration_ms = 0
+        self.vulcan_execution_handoff_reasons: list[str] = []
+        self.vulcan_execution_handoff_last_error: str | None = None
+        self.vulcan_execution_handoff_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -5385,6 +5418,94 @@ class RuntimeStatus:
         else:
             self.vulcan_scope_enforcement_errors += 1
 
+    def mark_vulcan_execution_handoff_result(self, result: dict) -> None:
+        self.last_vulcan_execution_handoff_at = datetime.now(timezone.utc)
+        self.vulcan_execution_handoff_iteration += 1
+        self.vulcan_execution_handoff_status = (
+            result.get("status") or "unknown"
+        )
+        self.vulcan_handoff_id = result.get("handoff_id")
+        self.vulcan_handoff_subphase_id = result.get("subphase_id")
+        self.vulcan_handoff_execution_objective = result.get(
+            "execution_objective"
+        )
+        self.vulcan_handoff_modified_files = [
+            str(path) for path in (result.get("modified_files") or [])
+        ]
+        self.vulcan_handoff_implementation_summary = [
+            str(item) for item in (result.get("implementation_summary") or [])
+        ]
+        self.vulcan_handoff_validations_executed = [
+            str(item) for item in (result.get("validations_executed") or [])
+        ]
+        self.vulcan_handoff_tests_executed = [
+            str(item) for item in (result.get("tests_executed") or [])
+        ]
+        self.vulcan_handoff_risks_detected = [
+            str(item) for item in (result.get("risks_detected") or [])
+        ]
+        self.vulcan_handoff_blocking_conditions = [
+            str(item) for item in (result.get("blocking_conditions") or [])
+        ]
+        self.vulcan_handoff_not_implemented = [
+            str(item) for item in (result.get("not_implemented") or [])
+        ]
+        self.vulcan_handoff_operational_status = result.get(
+            "operational_status"
+        )
+        self.vulcan_handoff_governance_status = result.get(
+            "governance_status"
+        )
+        self.vulcan_handoff_execution_continuity = result.get(
+            "execution_continuity"
+        )
+        self.vulcan_handoff_traceability_preserved = bool(
+            result.get("traceability_preserved")
+        )
+        self.vulcan_handoff_runtime_reporting_preserved = bool(
+            result.get("runtime_reporting_preserved")
+        )
+        self.vulcan_handoff_governance_consistency_preserved = bool(
+            result.get("governance_consistency_preserved")
+        )
+        self.vulcan_handoff_validations_honest = bool(
+            result.get("validations_honest")
+        )
+        self.vulcan_handoff_risks_reported = bool(
+            result.get("risks_reported")
+        )
+        self.vulcan_handoff_blocking_conditions_reported = bool(
+            result.get("blocking_conditions_reported")
+        )
+        self.vulcan_handoff_complete = bool(result.get("handoff_complete"))
+        self.vulcan_handoff_text = result.get("handoff_text")
+        self.vulcan_handoff_report_payload = dict(
+            result.get("report_payload") or {}
+        )
+        self.vulcan_handoff_lifecycle = [
+            dict(entry)
+            for entry in (result.get("handoff_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.vulcan_execution_handoff_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.vulcan_execution_handoff_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.vulcan_execution_handoff_last_error = result.get("error")
+        self.vulcan_execution_handoff_metadata = dict(
+            result.get("metadata") or {}
+        )
+
+        if self.vulcan_execution_handoff_status == "generated":
+            self.vulcan_execution_handoff_generated += 1
+        elif self.vulcan_execution_handoff_status == "blocked":
+            self.vulcan_execution_handoff_blocked += 1
+        else:
+            self.vulcan_execution_handoff_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -8170,6 +8291,78 @@ class RuntimeStatus:
             "metadata": dict(self.vulcan_scope_enforcement_metadata),
         }
 
+    def vulcan_execution_handoff_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_vulcan_execution_handoff_at": fmt(
+                self.last_vulcan_execution_handoff_at
+            ),
+            "vulcan_execution_handoff_iteration": (
+                self.vulcan_execution_handoff_iteration
+            ),
+            "vulcan_execution_handoff_status": (
+                self.vulcan_execution_handoff_status
+            ),
+            "vulcan_execution_handoff_generated": (
+                self.vulcan_execution_handoff_generated
+            ),
+            "vulcan_execution_handoff_blocked": (
+                self.vulcan_execution_handoff_blocked
+            ),
+            "vulcan_execution_handoff_errors": (
+                self.vulcan_execution_handoff_errors
+            ),
+            "handoff_id": self.vulcan_handoff_id,
+            "subphase_id": self.vulcan_handoff_subphase_id,
+            "execution_objective": (
+                self.vulcan_handoff_execution_objective
+            ),
+            "modified_files": list(self.vulcan_handoff_modified_files),
+            "implementation_summary": list(
+                self.vulcan_handoff_implementation_summary
+            ),
+            "validations_executed": list(
+                self.vulcan_handoff_validations_executed
+            ),
+            "tests_executed": list(self.vulcan_handoff_tests_executed),
+            "risks_detected": list(self.vulcan_handoff_risks_detected),
+            "blocking_conditions": list(
+                self.vulcan_handoff_blocking_conditions
+            ),
+            "not_implemented": list(self.vulcan_handoff_not_implemented),
+            "operational_status": self.vulcan_handoff_operational_status,
+            "governance_status": self.vulcan_handoff_governance_status,
+            "execution_continuity": (
+                self.vulcan_handoff_execution_continuity
+            ),
+            "traceability_preserved": (
+                self.vulcan_handoff_traceability_preserved
+            ),
+            "runtime_reporting_preserved": (
+                self.vulcan_handoff_runtime_reporting_preserved
+            ),
+            "governance_consistency_preserved": (
+                self.vulcan_handoff_governance_consistency_preserved
+            ),
+            "validations_honest": self.vulcan_handoff_validations_honest,
+            "risks_reported": self.vulcan_handoff_risks_reported,
+            "blocking_conditions_reported": (
+                self.vulcan_handoff_blocking_conditions_reported
+            ),
+            "handoff_complete": self.vulcan_handoff_complete,
+            "handoff_text": self.vulcan_handoff_text,
+            "report_payload": dict(self.vulcan_handoff_report_payload),
+            "handoff_lifecycle": [
+                dict(entry) for entry in self.vulcan_handoff_lifecycle
+            ],
+            "duration_ms": self.vulcan_execution_handoff_duration_ms,
+            "reasons": list(self.vulcan_execution_handoff_reasons),
+            "last_error": self.vulcan_execution_handoff_last_error,
+            "metadata": dict(self.vulcan_execution_handoff_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -8392,6 +8585,9 @@ class RuntimeStatus:
             "vulcan_prompt_protocol": self.vulcan_prompt_protocol_metrics(),
             "vulcan_scope_enforcement": (
                 self.vulcan_scope_enforcement_metrics()
+            ),
+            "vulcan_execution_handoff": (
+                self.vulcan_execution_handoff_metrics()
             ),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),

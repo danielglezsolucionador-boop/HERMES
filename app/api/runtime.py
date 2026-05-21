@@ -111,6 +111,9 @@ async def runtime_status(session: AsyncSession = Depends(get_session)):
         vulcan_scope_enforcement_metrics = (
             runner_runtime_status.vulcan_scope_enforcement_metrics()
         )
+        vulcan_execution_handoff_metrics = (
+            runner_runtime_status.vulcan_execution_handoff_metrics()
+        )
         response_ingestion_metrics = runner_runtime_status.response_ingestion_metrics()
         response_validation_metrics = runner_runtime_status.response_validation_metrics()
         response_safety_metrics = runner_runtime_status.response_safety_metrics()
@@ -171,6 +174,7 @@ async def runtime_status(session: AsyncSession = Depends(get_session)):
             "operational_task_discovery": operational_task_discovery_metrics,
             "vulcan_prompt_protocol": vulcan_prompt_protocol_metrics,
             "vulcan_scope_enforcement": vulcan_scope_enforcement_metrics,
+            "vulcan_execution_handoff": vulcan_execution_handoff_metrics,
             "response_ingestion": response_ingestion_metrics,
             "response_validation": response_validation_metrics,
             "response_safety": response_safety_metrics,
