@@ -122,6 +122,35 @@ class RuntimeStatus:
         self.pickup_safety_reasons: list[str] = []
         self.pickup_safety_runner_id: str | None = None
         self.pickup_safety_runtime_id: str | None = None
+        self.task_execution_started_at: datetime | None = None
+        self.last_execution_at: datetime | None = None
+        self.execution_iteration = 0
+        self.execution_enabled = False
+        self.execution_status = "stopped"
+        self.execution_interval_seconds = 0.0
+        self.execution_last_duration_ms = 0
+        self.execution_errors = 0
+        self.execution_last_error: str | None = None
+        self.executions_prepared = 0
+        self.executions_started = 0
+        self.executions_completed = 0
+        self.executions_rejected = 0
+        self.active_executions = 0
+        self.max_concurrent_executions = 0
+        self.max_execution_duration_seconds = 0
+        self.max_runtime_load = 0.0
+        self.runtime_load: float | None = None
+        self.max_execution_memory_mb = 0
+        self.execution_memory_usage_mb: float | None = None
+        self.last_execution_id: str | None = None
+        self.last_execution_state: str | None = None
+        self.last_execution_task_id: str | None = None
+        self.last_execution_task_title: str | None = None
+        self.last_execution_started_at: str | None = None
+        self.last_execution_finished_at: str | None = None
+        self.last_execution_duration_ms = 0
+        self.execution_runtime_owner: str | None = None
+        self.execution_reasons: list[str] = []
         self.runtime_safe = True
         self.consecutive_errors = 0
         self.degraded_state = False
@@ -247,6 +276,7 @@ class RuntimeStatus:
         self.discovery_status = "stopped"
         self.claiming_status = "stopped"
         self.pickup_safety_status = "stopped"
+        self.execution_status = "stopped"
 
     def configure_safety_event_limit(self, limit: int) -> None:
         self.safety_event_limit = max(1, int(limit or 1))
@@ -549,6 +579,102 @@ class RuntimeStatus:
         self.pickup_safety_allows_pickup = False
         self.pickup_safety_last_error = error or "unknown_pickup_safety_error"
 
+    def mark_task_execution_started(
+        self,
+        enabled: bool,
+        interval_seconds: float,
+        max_concurrent_executions: int = 0,
+        max_duration_seconds: int = 0,
+        max_runtime_load: float = 0.0,
+        max_memory_mb: int = 0,
+        runtime_owner: str | None = None,
+    ) -> None:
+        self.task_execution_started_at = datetime.now(timezone.utc)
+        self.execution_enabled = bool(enabled)
+        self.execution_status = "active" if enabled else "disabled"
+        self.execution_interval_seconds = interval_seconds
+        self.max_concurrent_executions = max(
+            0,
+            int(max_concurrent_executions or 0),
+        )
+        self.max_execution_duration_seconds = max(
+            0,
+            int(max_duration_seconds or 0),
+        )
+        self.max_runtime_load = max(0.0, float(max_runtime_load or 0.0))
+        self.max_execution_memory_mb = max(0, int(max_memory_mb or 0))
+        self.execution_runtime_owner = runtime_owner
+        self.execution_last_error = None
+
+    def mark_task_execution_result(self, result: dict) -> None:
+        self.last_execution_at = datetime.now(timezone.utc)
+        self.execution_iteration += 1
+        self.execution_status = result.get("status") or "unknown"
+        self.execution_last_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.active_executions = max(
+            0,
+            int(result.get("active_executions") or 0),
+        )
+        self.max_concurrent_executions = max(
+            0,
+            int(result.get("max_concurrent_executions") or 0),
+        )
+        self.max_execution_duration_seconds = max(
+            0,
+            int(result.get("max_duration_seconds") or 0),
+        )
+        self.max_runtime_load = max(
+            0.0,
+            float(result.get("max_runtime_load") or 0.0),
+        )
+        runtime_load = result.get("runtime_load")
+        self.runtime_load = float(runtime_load) if runtime_load is not None else None
+        self.max_execution_memory_mb = max(
+            0,
+            int(result.get("max_memory_mb") or 0),
+        )
+        memory_usage = result.get("memory_usage_mb")
+        self.execution_memory_usage_mb = (
+            float(memory_usage) if memory_usage is not None else None
+        )
+        self.last_execution_id = result.get("execution_id")
+        self.last_execution_state = result.get("execution_state")
+        self.last_execution_task_id = result.get("task_id")
+        self.last_execution_task_title = result.get("task_title")
+        self.last_execution_started_at = result.get("started_at")
+        self.last_execution_finished_at = result.get("finished_at")
+        self.last_execution_duration_ms = max(
+            0,
+            int(result.get("execution_duration_ms") or 0),
+        )
+        self.execution_runtime_owner = result.get("runtime_owner")
+        self.execution_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.execution_last_error = result.get("error")
+
+        if self.execution_status == "prepared":
+            self.executions_prepared += 1
+        elif self.execution_status == "started":
+            self.executions_started += 1
+        elif self.execution_status == "completed":
+            self.executions_completed += 1
+        elif self.execution_status == "rejected":
+            self.executions_rejected += 1
+        elif self.execution_status == "error":
+            self.execution_errors += 1
+
+    def mark_task_execution_error(self, error: str, duration_ms: int = 0) -> None:
+        self.last_execution_at = datetime.now(timezone.utc)
+        self.execution_iteration += 1
+        self.execution_last_duration_ms = max(0, int(duration_ms or 0))
+        self.execution_errors += 1
+        self.execution_status = "error"
+        self.execution_last_error = error or "unknown_execution_error"
+
     def ai_metrics(self) -> dict:
         avg_duration = 0
         avg_provider = 0
@@ -758,6 +884,42 @@ class RuntimeStatus:
             "runtime_id": self.pickup_safety_runtime_id,
         }
 
+    def execution_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "started_at": fmt(self.task_execution_started_at),
+            "last_execution_at": fmt(self.last_execution_at),
+            "execution_iteration": self.execution_iteration,
+            "execution_enabled": self.execution_enabled,
+            "execution_status": self.execution_status,
+            "execution_interval_seconds": self.execution_interval_seconds,
+            "execution_last_duration_ms": self.execution_last_duration_ms,
+            "execution_errors": self.execution_errors,
+            "execution_last_error": self.execution_last_error,
+            "executions_prepared": self.executions_prepared,
+            "executions_started": self.executions_started,
+            "executions_completed": self.executions_completed,
+            "executions_rejected": self.executions_rejected,
+            "active_executions": self.active_executions,
+            "max_concurrent_executions": self.max_concurrent_executions,
+            "max_duration_seconds": self.max_execution_duration_seconds,
+            "max_runtime_load": self.max_runtime_load,
+            "runtime_load": self.runtime_load,
+            "max_memory_mb": self.max_execution_memory_mb,
+            "memory_usage_mb": self.execution_memory_usage_mb,
+            "execution_id": self.last_execution_id,
+            "execution_state": self.last_execution_state,
+            "task_id": self.last_execution_task_id,
+            "task_title": self.last_execution_task_title,
+            "started_execution_at": self.last_execution_started_at,
+            "finished_execution_at": self.last_execution_finished_at,
+            "execution_duration_ms": self.last_execution_duration_ms,
+            "runtime_owner": self.execution_runtime_owner,
+            "reasons": list(self.execution_reasons),
+        }
+
     def to_dict(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -779,6 +941,7 @@ class RuntimeStatus:
             "discovery": self.discovery_metrics(),
             "claiming": self.claiming_metrics(),
             "pickup_safety": self.pickup_safety_metrics(),
+            "execution": self.execution_metrics(),
             "safety": self.safety_metrics(),
         }
         data.update(self.ai_metrics())

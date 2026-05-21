@@ -234,6 +234,35 @@ async def test_runtime_loop_records_pickup_safety_metrics_when_enabled():
 
 
 @pytest.mark.asyncio
+async def test_runtime_loop_initializes_execution_foundation_metrics():
+    async def two_discovered_tasks() -> TaskDiscoveryResult:
+        return TaskDiscoveryResult.from_count(2)
+
+    status = RuntimeStatus()
+    loop = RuntimeLoop(
+        status=status,
+        interval_seconds=0.01,
+        min_interval_seconds=0.01,
+        heartbeat_log_every=1000,
+        task_discovery=two_discovered_tasks,
+        execution_enabled=True,
+    )
+
+    task = asyncio.create_task(loop.run())
+    await asyncio.sleep(0.03)
+    execution = status.execution_metrics()
+    loop.request_stop("test_stop")
+    await asyncio.wait_for(task, timeout=1)
+
+    assert execution["execution_enabled"] is True
+    assert execution["execution_status"] == "active"
+    assert execution["executions_started"] == 0
+    assert execution["active_executions"] == 0
+    assert execution["max_concurrent_executions"] == 1
+    assert execution["runtime_owner"] == "hermes-runner:hermes-runtime"
+
+
+@pytest.mark.asyncio
 async def test_runtime_loop_blocks_claiming_when_pickup_safety_blocks():
     async def two_discovered_tasks() -> TaskDiscoveryResult:
         return TaskDiscoveryResult.from_count(2)

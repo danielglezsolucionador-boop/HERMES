@@ -3,7 +3,8 @@ Runtime loop foundation for Hermes.
 
 This loop maintains runtime heartbeat and lifecycle state.
 Task claiming is controlled and disabled by default. It never executes
-or retries tasks.
+or retries tasks. Execution foundation is initialized for observability
+but does not run autonomous work.
 """
 import asyncio
 import logging
@@ -41,6 +42,7 @@ class RuntimeLoop:
         pickup_safety: Callable[[], Awaitable[PickupSafetyResult]] | None = None,
         claiming_enabled: bool = settings.TASK_CLAIMING_ENABLED,
         pickup_safety_enabled: bool = settings.TASK_PICKUP_SAFETY_ENABLED,
+        execution_enabled: bool = settings.TASK_EXECUTION_ENABLED,
         degraded_error_threshold: int = settings.RUNTIME_LOOP_DEGRADED_ERROR_THRESHOLD,
         max_consecutive_errors: int = settings.RUNTIME_LOOP_MAX_CONSECUTIVE_ERRORS,
         safety_event_limit: int = settings.RUNTIME_LOOP_SAFETY_EVENT_LIMIT,
@@ -65,6 +67,7 @@ class RuntimeLoop:
             )
         )
         self.pickup_safety = pickup_safety or PickupSafety().inspect
+        self.execution_enabled = bool(execution_enabled)
         self.degraded_error_threshold = max(1, int(degraded_error_threshold))
         self.max_consecutive_errors = max(
             self.degraded_error_threshold,
@@ -178,6 +181,15 @@ class RuntimeLoop:
             enabled=self.pickup_safety_enabled,
             interval_seconds=self.interval_seconds,
         )
+        self.status.mark_task_execution_started(
+            enabled=self.execution_enabled,
+            interval_seconds=self.interval_seconds,
+            max_concurrent_executions=settings.TASK_EXECUTION_MAX_CONCURRENT_EXECUTIONS,
+            max_duration_seconds=settings.TASK_EXECUTION_MAX_DURATION_SECONDS,
+            max_runtime_load=settings.TASK_EXECUTION_MAX_RUNTIME_LOAD,
+            max_memory_mb=settings.TASK_EXECUTION_MAX_MEMORY_MB,
+            runtime_owner=f"{settings.RUNNER_ID}:{settings.RUNTIME_ID}",
+        )
         logger.info(
             "runtime_loop: started interval_seconds=%s",
             self.interval_seconds,
@@ -191,6 +203,10 @@ class RuntimeLoop:
         logger.info(
             "runtime_loop: pickup safety %s",
             "enabled" if self.pickup_safety_enabled else "disabled",
+        )
+        logger.info(
+            "runtime_loop: execution foundation %s",
+            "enabled" if self.execution_enabled else "disabled",
         )
 
         stop_reason = "stopped"
@@ -217,6 +233,8 @@ class RuntimeLoop:
                         )
                     if self.claiming_enabled:
                         self.status.mark_task_claiming_error(str(exc), poll_duration_ms)
+                    if self.execution_enabled:
+                        self.status.mark_task_execution_error(str(exc), poll_duration_ms)
                     self.status.mark_polling_error(str(exc), poll_duration_ms)
                     safety = self.status.mark_runtime_loop_error(
                         str(exc),
