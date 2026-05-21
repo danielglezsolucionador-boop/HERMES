@@ -1069,6 +1069,38 @@ class RuntimeStatus:
         self.learning_safety_reasons: list[str] = []
         self.learning_safety_last_error: str | None = None
         self.learning_safety_metadata: dict = {}
+        self.last_ecosystem_registry_at: datetime | None = None
+        self.ecosystem_registry_iteration = 0
+        self.ecosystem_registry_status = "stopped"
+        self.ecosystem_registry_validated = 0
+        self.ecosystem_registry_blocked = 0
+        self.ecosystem_registry_errors = 0
+        self.ecosystem_registry_id: str | None = None
+        self.ecosystem_registry_system_id: str | None = None
+        self.ecosystem_registry_action: str | None = None
+        self.ecosystem_registry_target_system_id: str | None = None
+        self.ecosystem_registry_system_type: str | None = None
+        self.ecosystem_registry_authority_level: str | None = None
+        self.ecosystem_registry_responsibility_scope: list[str] = []
+        self.ecosystem_registry_governance_status: str | None = None
+        self.ecosystem_registry_security_status: str | None = None
+        self.ecosystem_registry_operational_status: str | None = None
+        self.ecosystem_registry_authority_respected = False
+        self.ecosystem_registry_authority_conflict_detected = False
+        self.ecosystem_registry_hierarchy_preserved = False
+        self.ecosystem_registry_governance_preserved = False
+        self.ecosystem_registry_security_escalation_respected = False
+        self.ecosystem_registry_future_expansion_safe = False
+        self.ecosystem_registry_official_systems: list[dict] = []
+        self.ecosystem_registry_active_authorities: list[dict] = []
+        self.ecosystem_registry_coordination_hierarchy: list[dict] = []
+        self.ecosystem_registry_selected_system: dict = {}
+        self.ecosystem_registry_target_system: dict = {}
+        self.ecosystem_registry_lifecycle: list[dict] = []
+        self.ecosystem_registry_duration_ms = 0
+        self.ecosystem_registry_reasons: list[str] = []
+        self.ecosystem_registry_last_error: str | None = None
+        self.ecosystem_registry_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -4073,6 +4105,93 @@ class RuntimeStatus:
         else:
             self.learning_safety_errors += 1
 
+    def mark_ecosystem_registry_result(self, result: dict) -> None:
+        self.last_ecosystem_registry_at = datetime.now(timezone.utc)
+        self.ecosystem_registry_iteration += 1
+        self.ecosystem_registry_status = result.get("status") or "unknown"
+        self.ecosystem_registry_id = result.get("registry_id")
+        self.ecosystem_registry_system_id = result.get("system_id")
+        self.ecosystem_registry_action = result.get("action")
+        self.ecosystem_registry_target_system_id = result.get(
+            "target_system_id"
+        )
+        self.ecosystem_registry_system_type = result.get("system_type")
+        self.ecosystem_registry_authority_level = result.get(
+            "authority_level"
+        )
+        self.ecosystem_registry_responsibility_scope = [
+            str(item) for item in (result.get("responsibility_scope") or [])
+        ]
+        self.ecosystem_registry_governance_status = result.get(
+            "governance_status"
+        )
+        self.ecosystem_registry_security_status = result.get(
+            "security_status"
+        )
+        self.ecosystem_registry_operational_status = result.get(
+            "operational_status"
+        )
+        self.ecosystem_registry_authority_respected = bool(
+            result.get("authority_respected")
+        )
+        self.ecosystem_registry_authority_conflict_detected = bool(
+            result.get("authority_conflict_detected")
+        )
+        self.ecosystem_registry_hierarchy_preserved = bool(
+            result.get("hierarchy_preserved")
+        )
+        self.ecosystem_registry_governance_preserved = bool(
+            result.get("governance_preserved")
+        )
+        self.ecosystem_registry_security_escalation_respected = bool(
+            result.get("security_escalation_respected")
+        )
+        self.ecosystem_registry_future_expansion_safe = bool(
+            result.get("future_expansion_safe")
+        )
+        self.ecosystem_registry_official_systems = [
+            dict(system)
+            for system in (result.get("official_systems") or [])
+            if isinstance(system, dict)
+        ]
+        self.ecosystem_registry_active_authorities = [
+            dict(authority)
+            for authority in (result.get("active_authorities") or [])
+            if isinstance(authority, dict)
+        ]
+        self.ecosystem_registry_coordination_hierarchy = [
+            dict(item)
+            for item in (result.get("coordination_hierarchy") or [])
+            if isinstance(item, dict)
+        ]
+        self.ecosystem_registry_selected_system = dict(
+            result.get("selected_system") or {}
+        )
+        self.ecosystem_registry_target_system = dict(
+            result.get("target_system") or {}
+        )
+        self.ecosystem_registry_lifecycle = [
+            dict(entry)
+            for entry in (result.get("registry_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.ecosystem_registry_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.ecosystem_registry_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.ecosystem_registry_last_error = result.get("error")
+        self.ecosystem_registry_metadata = dict(result.get("metadata") or {})
+
+        if self.ecosystem_registry_status in {"registered", "validated"}:
+            self.ecosystem_registry_validated += 1
+        elif self.ecosystem_registry_status == "blocked":
+            self.ecosystem_registry_blocked += 1
+        else:
+            self.ecosystem_registry_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -6092,6 +6211,74 @@ class RuntimeStatus:
             "metadata": dict(self.learning_safety_metadata),
         }
 
+    def ecosystem_registry_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_ecosystem_registry_at": fmt(
+                self.last_ecosystem_registry_at
+            ),
+            "ecosystem_registry_iteration": self.ecosystem_registry_iteration,
+            "ecosystem_registry_status": self.ecosystem_registry_status,
+            "ecosystem_registry_validated": self.ecosystem_registry_validated,
+            "ecosystem_registry_blocked": self.ecosystem_registry_blocked,
+            "ecosystem_registry_errors": self.ecosystem_registry_errors,
+            "registry_id": self.ecosystem_registry_id,
+            "system_id": self.ecosystem_registry_system_id,
+            "action": self.ecosystem_registry_action,
+            "target_system_id": self.ecosystem_registry_target_system_id,
+            "system_type": self.ecosystem_registry_system_type,
+            "authority_level": self.ecosystem_registry_authority_level,
+            "responsibility_scope": list(
+                self.ecosystem_registry_responsibility_scope
+            ),
+            "governance_status": self.ecosystem_registry_governance_status,
+            "security_status": self.ecosystem_registry_security_status,
+            "operational_status": self.ecosystem_registry_operational_status,
+            "authority_respected": (
+                self.ecosystem_registry_authority_respected
+            ),
+            "authority_conflict_detected": (
+                self.ecosystem_registry_authority_conflict_detected
+            ),
+            "hierarchy_preserved": self.ecosystem_registry_hierarchy_preserved,
+            "governance_preserved": (
+                self.ecosystem_registry_governance_preserved
+            ),
+            "security_escalation_respected": (
+                self.ecosystem_registry_security_escalation_respected
+            ),
+            "future_expansion_safe": (
+                self.ecosystem_registry_future_expansion_safe
+            ),
+            "official_systems": [
+                dict(system)
+                for system in self.ecosystem_registry_official_systems
+            ],
+            "official_systems_count": len(
+                self.ecosystem_registry_official_systems
+            ),
+            "active_authorities": [
+                dict(authority)
+                for authority in self.ecosystem_registry_active_authorities
+            ],
+            "coordination_hierarchy": [
+                dict(item)
+                for item in self.ecosystem_registry_coordination_hierarchy
+            ],
+            "selected_system": dict(self.ecosystem_registry_selected_system),
+            "target_system": dict(self.ecosystem_registry_target_system),
+            "registry_lifecycle": [
+                dict(entry)
+                for entry in self.ecosystem_registry_lifecycle
+            ],
+            "duration_ms": self.ecosystem_registry_duration_ms,
+            "reasons": list(self.ecosystem_registry_reasons),
+            "last_error": self.ecosystem_registry_last_error,
+            "metadata": dict(self.ecosystem_registry_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -6302,6 +6489,7 @@ class RuntimeStatus:
             "workflow_learning": self.workflow_learning_metrics(),
             "preference_adaptation": self.preference_adaptation_metrics(),
             "learning_safety": self.learning_safety_metrics(),
+            "ecosystem_registry": self.ecosystem_registry_metrics(),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
             "response_safety": self.response_safety_metrics(),
