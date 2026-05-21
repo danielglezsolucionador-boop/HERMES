@@ -1284,6 +1284,56 @@ class RuntimeStatus:
         self.governance_escalation_reasons: list[str] = []
         self.governance_escalation_last_error: str | None = None
         self.governance_escalation_metadata: dict = {}
+        self.last_governance_safety_at: datetime | None = None
+        self.governance_safety_iteration = 0
+        self.governance_safety_status = "stopped"
+        self.governance_safety_safe = 0
+        self.governance_safety_blocked = 0
+        self.governance_safety_errors = 0
+        self.governance_safety_id: str | None = None
+        self.governance_safety_type: str | None = None
+        self.governance_safety_state: str | None = None
+        self.governance_safety_execution_id: str | None = None
+        self.governance_safety_task_id: str | None = None
+        self.governance_safety_authority_source: str | None = None
+        self.governance_safety_reporting_authority: str | None = None
+        self.governance_safety_execution_context: dict = {}
+        self.governance_safety_authority_status: str | None = None
+        self.governance_safety_governance_status: str | None = None
+        self.governance_safety_approval_status: str | None = None
+        self.governance_safety_audit_status: str | None = None
+        self.governance_safety_security_status: str | None = None
+        self.governance_safety_runtime_status: str | None = None
+        self.governance_safety_blocking_status: str | None = None
+        self.governance_safety_continuation_status: str | None = None
+        self.governance_safety_risk_level: str | None = None
+        self.governance_safety_execution_allowed = False
+        self.governance_safety_continuation_allowed = False
+        self.governance_safety_human_authority_preserved = False
+        self.governance_safety_autonomy_limited = False
+        self.governance_safety_governance_integrity_preserved = False
+        self.governance_safety_audit_respected = False
+        self.governance_safety_security_respected = False
+        self.governance_safety_blocking_respected = False
+        self.governance_safety_runtime_stability_preserved = False
+        self.governance_safety_ecosystem_coherence_preserved = False
+        self.governance_safety_transparency_preserved = False
+        self.governance_safety_traceability_preserved = False
+        self.governance_safety_human_authority_risk = False
+        self.governance_safety_governance_risk = False
+        self.governance_safety_audit_risk = False
+        self.governance_safety_security_risk = False
+        self.governance_safety_execution_risk = False
+        self.governance_safety_continuation_risk = False
+        self.governance_safety_escalation_required = False
+        self.governance_safety_report_payload: dict = {}
+        self.governance_safety_history: list[dict] = []
+        self.governance_safety_lifecycle: list[dict] = []
+        self.governance_safety_risks: list[str] = []
+        self.governance_safety_duration_ms = 0
+        self.governance_safety_reasons: list[str] = []
+        self.governance_safety_last_error: str | None = None
+        self.governance_safety_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -4816,6 +4866,135 @@ class RuntimeStatus:
         else:
             self.governance_escalation_errors += 1
 
+    def mark_governance_safety_result(self, result: dict) -> None:
+        self.last_governance_safety_at = datetime.now(timezone.utc)
+        self.governance_safety_iteration += 1
+        self.governance_safety_status = result.get("status") or "unknown"
+        self.governance_safety_id = result.get("safety_id")
+        self.governance_safety_type = result.get("safety_type")
+        self.governance_safety_state = result.get("safety_status")
+        self.governance_safety_execution_id = result.get("execution_id")
+        self.governance_safety_task_id = result.get("task_id")
+        self.governance_safety_authority_source = result.get(
+            "authority_source"
+        )
+        self.governance_safety_reporting_authority = result.get(
+            "reporting_authority"
+        )
+        self.governance_safety_execution_context = dict(
+            result.get("execution_context") or {}
+        )
+        self.governance_safety_authority_status = result.get(
+            "authority_status"
+        )
+        self.governance_safety_governance_status = result.get(
+            "governance_status"
+        )
+        self.governance_safety_approval_status = result.get(
+            "approval_status"
+        )
+        self.governance_safety_audit_status = result.get("audit_status")
+        self.governance_safety_security_status = result.get(
+            "security_status"
+        )
+        self.governance_safety_runtime_status = result.get("runtime_status")
+        self.governance_safety_blocking_status = result.get(
+            "blocking_status"
+        )
+        self.governance_safety_continuation_status = result.get(
+            "continuation_status"
+        )
+        self.governance_safety_risk_level = result.get("risk_level")
+        self.governance_safety_execution_allowed = bool(
+            result.get("execution_allowed")
+        )
+        self.governance_safety_continuation_allowed = bool(
+            result.get("continuation_allowed")
+        )
+        self.governance_safety_human_authority_preserved = bool(
+            result.get("human_authority_preserved")
+        )
+        self.governance_safety_autonomy_limited = bool(
+            result.get("autonomy_limited")
+        )
+        self.governance_safety_governance_integrity_preserved = bool(
+            result.get("governance_integrity_preserved")
+        )
+        self.governance_safety_audit_respected = bool(
+            result.get("audit_respected")
+        )
+        self.governance_safety_security_respected = bool(
+            result.get("security_respected")
+        )
+        self.governance_safety_blocking_respected = bool(
+            result.get("blocking_respected")
+        )
+        self.governance_safety_runtime_stability_preserved = bool(
+            result.get("runtime_stability_preserved")
+        )
+        self.governance_safety_ecosystem_coherence_preserved = bool(
+            result.get("ecosystem_coherence_preserved")
+        )
+        self.governance_safety_transparency_preserved = bool(
+            result.get("operational_transparency_preserved")
+        )
+        self.governance_safety_traceability_preserved = bool(
+            result.get("traceability_preserved")
+        )
+        self.governance_safety_human_authority_risk = bool(
+            result.get("human_authority_risk_detected")
+        )
+        self.governance_safety_governance_risk = bool(
+            result.get("governance_risk_detected")
+        )
+        self.governance_safety_audit_risk = bool(
+            result.get("audit_risk_detected")
+        )
+        self.governance_safety_security_risk = bool(
+            result.get("security_risk_detected")
+        )
+        self.governance_safety_execution_risk = bool(
+            result.get("execution_risk_detected")
+        )
+        self.governance_safety_continuation_risk = bool(
+            result.get("continuation_risk_detected")
+        )
+        self.governance_safety_escalation_required = bool(
+            result.get("escalation_required")
+        )
+        self.governance_safety_report_payload = dict(
+            result.get("report_payload") or {}
+        )
+        self.governance_safety_history = [
+            dict(entry)
+            for entry in (result.get("governance_history") or [])
+            if isinstance(entry, dict)
+        ]
+        self.governance_safety_lifecycle = [
+            dict(entry)
+            for entry in (result.get("safety_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.governance_safety_risks = [
+            str(item) for item in (result.get("risks") or [])
+        ]
+        self.governance_safety_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.governance_safety_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.governance_safety_last_error = result.get("error")
+        self.governance_safety_metadata = dict(result.get("metadata") or {})
+
+        if self.governance_safety_status == "safe":
+            self.governance_safety_safe += 1
+        elif self.governance_safety_status == "blocked":
+            self.governance_safety_blocked += 1
+        else:
+            self.governance_safety_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -7272,6 +7451,101 @@ class RuntimeStatus:
             "metadata": dict(self.governance_escalation_metadata),
         }
 
+    def governance_safety_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_governance_safety_at": fmt(
+                self.last_governance_safety_at
+            ),
+            "governance_safety_iteration": (
+                self.governance_safety_iteration
+            ),
+            "governance_safety_status": self.governance_safety_status,
+            "governance_safety_safe": self.governance_safety_safe,
+            "governance_safety_blocked": self.governance_safety_blocked,
+            "governance_safety_errors": self.governance_safety_errors,
+            "safety_id": self.governance_safety_id,
+            "safety_type": self.governance_safety_type,
+            "safety_status": self.governance_safety_state,
+            "execution_id": self.governance_safety_execution_id,
+            "task_id": self.governance_safety_task_id,
+            "authority_source": self.governance_safety_authority_source,
+            "reporting_authority": (
+                self.governance_safety_reporting_authority
+            ),
+            "execution_context": dict(
+                self.governance_safety_execution_context
+            ),
+            "authority_status": self.governance_safety_authority_status,
+            "governance_status": self.governance_safety_governance_status,
+            "approval_status": self.governance_safety_approval_status,
+            "audit_status": self.governance_safety_audit_status,
+            "security_status": self.governance_safety_security_status,
+            "runtime_status": self.governance_safety_runtime_status,
+            "blocking_status": self.governance_safety_blocking_status,
+            "continuation_status": (
+                self.governance_safety_continuation_status
+            ),
+            "risk_level": self.governance_safety_risk_level,
+            "execution_allowed": self.governance_safety_execution_allowed,
+            "continuation_allowed": (
+                self.governance_safety_continuation_allowed
+            ),
+            "human_authority_preserved": (
+                self.governance_safety_human_authority_preserved
+            ),
+            "autonomy_limited": self.governance_safety_autonomy_limited,
+            "governance_integrity_preserved": (
+                self.governance_safety_governance_integrity_preserved
+            ),
+            "audit_respected": self.governance_safety_audit_respected,
+            "security_respected": self.governance_safety_security_respected,
+            "blocking_respected": self.governance_safety_blocking_respected,
+            "runtime_stability_preserved": (
+                self.governance_safety_runtime_stability_preserved
+            ),
+            "ecosystem_coherence_preserved": (
+                self.governance_safety_ecosystem_coherence_preserved
+            ),
+            "operational_transparency_preserved": (
+                self.governance_safety_transparency_preserved
+            ),
+            "traceability_preserved": (
+                self.governance_safety_traceability_preserved
+            ),
+            "human_authority_risk_detected": (
+                self.governance_safety_human_authority_risk
+            ),
+            "governance_risk_detected": (
+                self.governance_safety_governance_risk
+            ),
+            "audit_risk_detected": self.governance_safety_audit_risk,
+            "security_risk_detected": self.governance_safety_security_risk,
+            "execution_risk_detected": (
+                self.governance_safety_execution_risk
+            ),
+            "continuation_risk_detected": (
+                self.governance_safety_continuation_risk
+            ),
+            "escalation_required": (
+                self.governance_safety_escalation_required
+            ),
+            "report_payload": dict(self.governance_safety_report_payload),
+            "governance_history": [
+                dict(entry) for entry in self.governance_safety_history
+            ],
+            "safety_lifecycle": [
+                dict(entry) for entry in self.governance_safety_lifecycle
+            ],
+            "risks": list(self.governance_safety_risks),
+            "duration_ms": self.governance_safety_duration_ms,
+            "reasons": list(self.governance_safety_reasons),
+            "last_error": self.governance_safety_last_error,
+            "metadata": dict(self.governance_safety_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -7487,6 +7761,7 @@ class RuntimeStatus:
             "governance_foundation": self.governance_foundation_metrics(),
             "approval_system": self.approval_system_metrics(),
             "governance_escalation": self.governance_escalation_metrics(),
+            "governance_safety": self.governance_safety_metrics(),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
             "response_safety": self.response_safety_metrics(),

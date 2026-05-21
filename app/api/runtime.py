@@ -99,6 +99,9 @@ async def runtime_status(session: AsyncSession = Depends(get_session)):
         governance_escalation_metrics = (
             runner_runtime_status.governance_escalation_metrics()
         )
+        governance_safety_metrics = (
+            runner_runtime_status.governance_safety_metrics()
+        )
         response_ingestion_metrics = runner_runtime_status.response_ingestion_metrics()
         response_validation_metrics = runner_runtime_status.response_validation_metrics()
         response_safety_metrics = runner_runtime_status.response_safety_metrics()
@@ -155,6 +158,7 @@ async def runtime_status(session: AsyncSession = Depends(get_session)):
             "governance_foundation": governance_foundation_metrics,
             "approval_system": approval_system_metrics,
             "governance_escalation": governance_escalation_metrics,
+            "governance_safety": governance_safety_metrics,
             "response_ingestion": response_ingestion_metrics,
             "response_validation": response_validation_metrics,
             "response_safety": response_safety_metrics,
