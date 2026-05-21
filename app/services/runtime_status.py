@@ -1236,6 +1236,54 @@ class RuntimeStatus:
         self.approval_system_reasons: list[str] = []
         self.approval_system_last_error: str | None = None
         self.approval_system_metadata: dict = {}
+        self.last_governance_escalation_at: datetime | None = None
+        self.governance_escalation_iteration = 0
+        self.governance_escalation_status = "stopped"
+        self.governance_escalations_active = 0
+        self.governance_escalations_blocked = 0
+        self.governance_escalation_errors = 0
+        self.last_escalation_id: str | None = None
+        self.governance_escalation_type: str | None = None
+        self.governance_escalation_state: str | None = None
+        self.governance_escalation_reason: str | None = None
+        self.governance_escalation_reporting_authority: str | None = None
+        self.governance_escalation_execution_id: str | None = None
+        self.governance_escalation_task_id: str | None = None
+        self.governance_escalation_execution_context: dict = {}
+        self.governance_escalation_governance_status: str | None = None
+        self.governance_escalation_approval_status: str | None = None
+        self.governance_escalation_audit_status: str | None = None
+        self.governance_escalation_security_status: str | None = None
+        self.governance_escalation_runtime_status: str | None = None
+        self.governance_escalation_blocking_status: str | None = None
+        self.governance_escalation_continuation_status: str | None = None
+        self.governance_escalation_risk_level: str | None = None
+        self.governance_escalation_critical_conflict_detected = False
+        self.governance_escalation_required = False
+        self.governance_escalation_authority_respected = False
+        self.governance_escalation_no_self_resolution = False
+        self.governance_escalation_governance_preserved = False
+        self.governance_escalation_runtime_stability_preserved = False
+        self.governance_escalation_blocking_preserved = False
+        self.governance_escalation_execution_safety_preserved = False
+        self.governance_escalation_context_preserved = False
+        self.governance_escalation_traceability_preserved = False
+        self.governance_escalation_honest_reporting_preserved = False
+        self.governance_escalation_governance_conflict = False
+        self.governance_escalation_approval_failure = False
+        self.governance_escalation_audit_rejection = False
+        self.governance_escalation_security_escalation = False
+        self.governance_escalation_runtime_instability = False
+        self.governance_escalation_operational_inconsistency = False
+        self.governance_escalation_continuation_unsafe = False
+        self.governance_escalation_report_payload: dict = {}
+        self.governance_escalation_lifecycle: list[dict] = []
+        self.governance_escalation_history: list[dict] = []
+        self.governance_escalation_risks: list[str] = []
+        self.governance_escalation_duration_ms = 0
+        self.governance_escalation_reasons: list[str] = []
+        self.governance_escalation_last_error: str | None = None
+        self.governance_escalation_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -4643,6 +4691,131 @@ class RuntimeStatus:
         else:
             self.approval_system_errors += 1
 
+    def mark_governance_escalation_result(self, result: dict) -> None:
+        self.last_governance_escalation_at = datetime.now(timezone.utc)
+        self.governance_escalation_iteration += 1
+        self.governance_escalation_status = result.get("status") or "unknown"
+        self.last_escalation_id = result.get("escalation_id")
+        self.governance_escalation_type = result.get("escalation_type")
+        self.governance_escalation_state = result.get("escalation_status")
+        self.governance_escalation_reason = result.get("escalation_reason")
+        self.governance_escalation_reporting_authority = result.get(
+            "reporting_authority"
+        )
+        self.governance_escalation_execution_id = result.get("execution_id")
+        self.governance_escalation_task_id = result.get("task_id")
+        self.governance_escalation_execution_context = dict(
+            result.get("execution_context") or {}
+        )
+        self.governance_escalation_governance_status = result.get(
+            "governance_status"
+        )
+        self.governance_escalation_approval_status = result.get(
+            "approval_status"
+        )
+        self.governance_escalation_audit_status = result.get("audit_status")
+        self.governance_escalation_security_status = result.get(
+            "security_status"
+        )
+        self.governance_escalation_runtime_status = result.get(
+            "runtime_status"
+        )
+        self.governance_escalation_blocking_status = result.get(
+            "blocking_status"
+        )
+        self.governance_escalation_continuation_status = result.get(
+            "continuation_status"
+        )
+        self.governance_escalation_risk_level = result.get("risk_level")
+        self.governance_escalation_critical_conflict_detected = bool(
+            result.get("critical_conflict_detected")
+        )
+        self.governance_escalation_required = bool(
+            result.get("escalation_required")
+        )
+        self.governance_escalation_authority_respected = bool(
+            result.get("authority_respected")
+        )
+        self.governance_escalation_no_self_resolution = bool(
+            result.get("no_self_resolution")
+        )
+        self.governance_escalation_governance_preserved = bool(
+            result.get("governance_preserved")
+        )
+        self.governance_escalation_runtime_stability_preserved = bool(
+            result.get("runtime_stability_preserved")
+        )
+        self.governance_escalation_blocking_preserved = bool(
+            result.get("blocking_preserved")
+        )
+        self.governance_escalation_execution_safety_preserved = bool(
+            result.get("execution_safety_preserved")
+        )
+        self.governance_escalation_context_preserved = bool(
+            result.get("context_preserved")
+        )
+        self.governance_escalation_traceability_preserved = bool(
+            result.get("traceability_preserved")
+        )
+        self.governance_escalation_honest_reporting_preserved = bool(
+            result.get("honest_reporting_preserved")
+        )
+        self.governance_escalation_governance_conflict = bool(
+            result.get("governance_conflict_detected")
+        )
+        self.governance_escalation_approval_failure = bool(
+            result.get("approval_failure_detected")
+        )
+        self.governance_escalation_audit_rejection = bool(
+            result.get("audit_rejection_detected")
+        )
+        self.governance_escalation_security_escalation = bool(
+            result.get("security_escalation_detected")
+        )
+        self.governance_escalation_runtime_instability = bool(
+            result.get("runtime_instability_detected")
+        )
+        self.governance_escalation_operational_inconsistency = bool(
+            result.get("operational_inconsistency_detected")
+        )
+        self.governance_escalation_continuation_unsafe = bool(
+            result.get("continuation_unsafe_detected")
+        )
+        self.governance_escalation_report_payload = dict(
+            result.get("report_payload") or {}
+        )
+        self.governance_escalation_lifecycle = [
+            dict(entry)
+            for entry in (result.get("escalation_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.governance_escalation_history = [
+            dict(entry)
+            for entry in (result.get("escalation_history") or [])
+            if isinstance(entry, dict)
+        ]
+        self.governance_escalation_risks = [
+            str(item) for item in (result.get("risks") or [])
+        ]
+        self.governance_escalation_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.governance_escalation_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.governance_escalation_last_error = result.get("error")
+        self.governance_escalation_metadata = dict(
+            result.get("metadata") or {}
+        )
+
+        if self.governance_escalation_status == "escalated":
+            self.governance_escalations_active += 1
+        elif self.governance_escalation_status == "blocked":
+            self.governance_escalations_blocked += 1
+        else:
+            self.governance_escalation_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -6983,6 +7156,122 @@ class RuntimeStatus:
             "metadata": dict(self.approval_system_metadata),
         }
 
+    def governance_escalation_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_governance_escalation_at": fmt(
+                self.last_governance_escalation_at
+            ),
+            "governance_escalation_iteration": (
+                self.governance_escalation_iteration
+            ),
+            "governance_escalation_status": (
+                self.governance_escalation_status
+            ),
+            "governance_escalations_active": (
+                self.governance_escalations_active
+            ),
+            "governance_escalations_blocked": (
+                self.governance_escalations_blocked
+            ),
+            "governance_escalation_errors": (
+                self.governance_escalation_errors
+            ),
+            "escalation_id": self.last_escalation_id,
+            "escalation_type": self.governance_escalation_type,
+            "escalation_status": self.governance_escalation_state,
+            "escalation_reason": self.governance_escalation_reason,
+            "reporting_authority": (
+                self.governance_escalation_reporting_authority
+            ),
+            "execution_id": self.governance_escalation_execution_id,
+            "task_id": self.governance_escalation_task_id,
+            "execution_context": dict(
+                self.governance_escalation_execution_context
+            ),
+            "governance_status": (
+                self.governance_escalation_governance_status
+            ),
+            "approval_status": self.governance_escalation_approval_status,
+            "audit_status": self.governance_escalation_audit_status,
+            "security_status": self.governance_escalation_security_status,
+            "runtime_status": self.governance_escalation_runtime_status,
+            "blocking_status": self.governance_escalation_blocking_status,
+            "continuation_status": (
+                self.governance_escalation_continuation_status
+            ),
+            "risk_level": self.governance_escalation_risk_level,
+            "critical_conflict_detected": (
+                self.governance_escalation_critical_conflict_detected
+            ),
+            "escalation_required": self.governance_escalation_required,
+            "authority_respected": (
+                self.governance_escalation_authority_respected
+            ),
+            "no_self_resolution": (
+                self.governance_escalation_no_self_resolution
+            ),
+            "governance_preserved": (
+                self.governance_escalation_governance_preserved
+            ),
+            "runtime_stability_preserved": (
+                self.governance_escalation_runtime_stability_preserved
+            ),
+            "blocking_preserved": (
+                self.governance_escalation_blocking_preserved
+            ),
+            "execution_safety_preserved": (
+                self.governance_escalation_execution_safety_preserved
+            ),
+            "context_preserved": (
+                self.governance_escalation_context_preserved
+            ),
+            "traceability_preserved": (
+                self.governance_escalation_traceability_preserved
+            ),
+            "honest_reporting_preserved": (
+                self.governance_escalation_honest_reporting_preserved
+            ),
+            "governance_conflict_detected": (
+                self.governance_escalation_governance_conflict
+            ),
+            "approval_failure_detected": (
+                self.governance_escalation_approval_failure
+            ),
+            "audit_rejection_detected": (
+                self.governance_escalation_audit_rejection
+            ),
+            "security_escalation_detected": (
+                self.governance_escalation_security_escalation
+            ),
+            "runtime_instability_detected": (
+                self.governance_escalation_runtime_instability
+            ),
+            "operational_inconsistency_detected": (
+                self.governance_escalation_operational_inconsistency
+            ),
+            "continuation_unsafe_detected": (
+                self.governance_escalation_continuation_unsafe
+            ),
+            "report_payload": dict(
+                self.governance_escalation_report_payload
+            ),
+            "escalation_lifecycle": [
+                dict(entry)
+                for entry in self.governance_escalation_lifecycle
+            ],
+            "escalation_history": [
+                dict(entry) for entry in self.governance_escalation_history
+            ],
+            "risks": list(self.governance_escalation_risks),
+            "duration_ms": self.governance_escalation_duration_ms,
+            "reasons": list(self.governance_escalation_reasons),
+            "last_error": self.governance_escalation_last_error,
+            "metadata": dict(self.governance_escalation_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -7197,6 +7486,7 @@ class RuntimeStatus:
             "executive_communication": self.executive_communication_metrics(),
             "governance_foundation": self.governance_foundation_metrics(),
             "approval_system": self.approval_system_metrics(),
+            "governance_escalation": self.governance_escalation_metrics(),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
             "response_safety": self.response_safety_metrics(),
