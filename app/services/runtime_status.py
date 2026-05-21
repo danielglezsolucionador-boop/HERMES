@@ -1540,6 +1540,41 @@ class RuntimeStatus:
         self.sentinel_audit_pipeline_reasons: list[str] = []
         self.sentinel_audit_pipeline_last_error: str | None = None
         self.sentinel_audit_pipeline_metadata: dict = {}
+        self.last_sentinel_technical_validation_at: datetime | None = None
+        self.sentinel_technical_validation_iteration = 0
+        self.sentinel_technical_validation_status = "stopped"
+        self.sentinel_technical_validation_validated = 0
+        self.sentinel_technical_validation_blocked = 0
+        self.sentinel_technical_validation_errors = 0
+        self.sentinel_technical_validation_id: str | None = None
+        self.sentinel_technical_execution_id: str | None = None
+        self.sentinel_technical_task_id: str | None = None
+        self.sentinel_technical_modified_files: list[str] = []
+        self.sentinel_technical_validation_commands: list[str] = []
+        self.sentinel_import_valid = False
+        self.sentinel_syntax_valid = False
+        self.sentinel_technical_runtime_valid = False
+        self.sentinel_technical_architecture_valid = False
+        self.sentinel_execution_integrity_valid = False
+        self.sentinel_technical_governance_compliant = False
+        self.sentinel_technical_security_observation_clear = False
+        self.sentinel_technical_blocking_conditions_clear = False
+        self.sentinel_technical_runtime_integrity_preserved = False
+        self.sentinel_architecture_integrity_preserved = False
+        self.sentinel_execution_stability_preserved = False
+        self.sentinel_technical_governance_consistency_preserved = False
+        self.sentinel_technical_operational_stability_preserved = False
+        self.sentinel_workflow_safe = False
+        self.sentinel_technical_security_escalation_recommended = False
+        self.sentinel_audit_decision_recommendation: str | None = None
+        self.sentinel_technical_risks_detected: list[str] = []
+        self.sentinel_technical_blocking_conditions: list[str] = []
+        self.sentinel_technical_report_payload: dict = {}
+        self.sentinel_technical_validation_lifecycle: list[dict] = []
+        self.sentinel_technical_validation_duration_ms = 0
+        self.sentinel_technical_validation_reasons: list[str] = []
+        self.sentinel_technical_validation_last_error: str | None = None
+        self.sentinel_technical_validation_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -5737,6 +5772,96 @@ class RuntimeStatus:
         else:
             self.sentinel_audit_pipeline_errors += 1
 
+    def mark_sentinel_technical_validation_result(self, result: dict) -> None:
+        self.last_sentinel_technical_validation_at = datetime.now(timezone.utc)
+        self.sentinel_technical_validation_iteration += 1
+        self.sentinel_technical_validation_status = (
+            result.get("status") or "unknown"
+        )
+        self.sentinel_technical_validation_id = result.get("validation_id")
+        self.sentinel_technical_execution_id = result.get("execution_id")
+        self.sentinel_technical_task_id = result.get("task_id")
+        self.sentinel_technical_modified_files = [
+            str(path) for path in (result.get("modified_files") or [])
+        ]
+        self.sentinel_technical_validation_commands = [
+            str(item) for item in (result.get("validation_commands") or [])
+        ]
+        self.sentinel_import_valid = bool(result.get("import_valid"))
+        self.sentinel_syntax_valid = bool(result.get("syntax_valid"))
+        self.sentinel_technical_runtime_valid = bool(
+            result.get("runtime_valid")
+        )
+        self.sentinel_technical_architecture_valid = bool(
+            result.get("architecture_valid")
+        )
+        self.sentinel_execution_integrity_valid = bool(
+            result.get("execution_integrity_valid")
+        )
+        self.sentinel_technical_governance_compliant = bool(
+            result.get("governance_compliant")
+        )
+        self.sentinel_technical_security_observation_clear = bool(
+            result.get("security_observation_clear")
+        )
+        self.sentinel_technical_blocking_conditions_clear = bool(
+            result.get("blocking_conditions_clear")
+        )
+        self.sentinel_technical_runtime_integrity_preserved = bool(
+            result.get("runtime_integrity_preserved")
+        )
+        self.sentinel_architecture_integrity_preserved = bool(
+            result.get("architecture_integrity_preserved")
+        )
+        self.sentinel_execution_stability_preserved = bool(
+            result.get("execution_stability_preserved")
+        )
+        self.sentinel_technical_governance_consistency_preserved = bool(
+            result.get("governance_consistency_preserved")
+        )
+        self.sentinel_technical_operational_stability_preserved = bool(
+            result.get("operational_stability_preserved")
+        )
+        self.sentinel_workflow_safe = bool(result.get("workflow_safe"))
+        self.sentinel_technical_security_escalation_recommended = bool(
+            result.get("security_escalation_recommended")
+        )
+        self.sentinel_audit_decision_recommendation = result.get(
+            "audit_decision_recommendation"
+        )
+        self.sentinel_technical_risks_detected = [
+            str(risk) for risk in (result.get("risks_detected") or [])
+        ]
+        self.sentinel_technical_blocking_conditions = [
+            str(item) for item in (result.get("blocking_conditions") or [])
+        ]
+        self.sentinel_technical_report_payload = dict(
+            result.get("report_payload") or {}
+        )
+        self.sentinel_technical_validation_lifecycle = [
+            dict(entry)
+            for entry in (result.get("validation_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.sentinel_technical_validation_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.sentinel_technical_validation_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.sentinel_technical_validation_last_error = result.get("error")
+        self.sentinel_technical_validation_metadata = dict(
+            result.get("metadata") or {}
+        )
+
+        if self.sentinel_technical_validation_status == "validated":
+            self.sentinel_technical_validation_validated += 1
+        elif self.sentinel_technical_validation_status == "blocked":
+            self.sentinel_technical_validation_blocked += 1
+        else:
+            self.sentinel_technical_validation_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -8736,6 +8861,89 @@ class RuntimeStatus:
             "metadata": dict(self.sentinel_audit_pipeline_metadata),
         }
 
+    def sentinel_technical_validation_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_sentinel_technical_validation_at": fmt(
+                self.last_sentinel_technical_validation_at
+            ),
+            "sentinel_technical_validation_iteration": (
+                self.sentinel_technical_validation_iteration
+            ),
+            "sentinel_technical_validation_status": (
+                self.sentinel_technical_validation_status
+            ),
+            "sentinel_technical_validation_validated": (
+                self.sentinel_technical_validation_validated
+            ),
+            "sentinel_technical_validation_blocked": (
+                self.sentinel_technical_validation_blocked
+            ),
+            "sentinel_technical_validation_errors": (
+                self.sentinel_technical_validation_errors
+            ),
+            "validation_id": self.sentinel_technical_validation_id,
+            "execution_id": self.sentinel_technical_execution_id,
+            "task_id": self.sentinel_technical_task_id,
+            "modified_files": list(self.sentinel_technical_modified_files),
+            "validation_commands": list(
+                self.sentinel_technical_validation_commands
+            ),
+            "import_valid": self.sentinel_import_valid,
+            "syntax_valid": self.sentinel_syntax_valid,
+            "runtime_valid": self.sentinel_technical_runtime_valid,
+            "architecture_valid": self.sentinel_technical_architecture_valid,
+            "execution_integrity_valid": (
+                self.sentinel_execution_integrity_valid
+            ),
+            "governance_compliant": (
+                self.sentinel_technical_governance_compliant
+            ),
+            "security_observation_clear": (
+                self.sentinel_technical_security_observation_clear
+            ),
+            "blocking_conditions_clear": (
+                self.sentinel_technical_blocking_conditions_clear
+            ),
+            "runtime_integrity_preserved": (
+                self.sentinel_technical_runtime_integrity_preserved
+            ),
+            "architecture_integrity_preserved": (
+                self.sentinel_architecture_integrity_preserved
+            ),
+            "execution_stability_preserved": (
+                self.sentinel_execution_stability_preserved
+            ),
+            "governance_consistency_preserved": (
+                self.sentinel_technical_governance_consistency_preserved
+            ),
+            "operational_stability_preserved": (
+                self.sentinel_technical_operational_stability_preserved
+            ),
+            "workflow_safe": self.sentinel_workflow_safe,
+            "security_escalation_recommended": (
+                self.sentinel_technical_security_escalation_recommended
+            ),
+            "audit_decision_recommendation": (
+                self.sentinel_audit_decision_recommendation
+            ),
+            "risks_detected": list(self.sentinel_technical_risks_detected),
+            "blocking_conditions": list(
+                self.sentinel_technical_blocking_conditions
+            ),
+            "report_payload": dict(self.sentinel_technical_report_payload),
+            "validation_lifecycle": [
+                dict(entry)
+                for entry in self.sentinel_technical_validation_lifecycle
+            ],
+            "duration_ms": self.sentinel_technical_validation_duration_ms,
+            "reasons": list(self.sentinel_technical_validation_reasons),
+            "last_error": self.sentinel_technical_validation_last_error,
+            "metadata": dict(self.sentinel_technical_validation_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -8966,6 +9174,9 @@ class RuntimeStatus:
                 self.vulcan_operational_validation_metrics()
             ),
             "sentinel_audit_pipeline": self.sentinel_audit_pipeline_metrics(),
+            "sentinel_technical_validation": (
+                self.sentinel_technical_validation_metrics()
+            ),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
             "response_safety": self.response_safety_metrics(),
