@@ -37,6 +37,9 @@ async def runtime_status(session: AsyncSession = Depends(get_session)):
         claiming_metrics = runner_runtime_status.claiming_metrics()
         pickup_safety_metrics = runner_runtime_status.pickup_safety_metrics()
         execution_metrics = runner_runtime_status.execution_metrics()
+        execution_session_metrics = (
+            runner_runtime_status.execution_session_metrics()
+        )
         execution_safety_metrics = runner_runtime_status.execution_safety_metrics()
         timeout_control_metrics = runner_runtime_status.timeout_control_metrics()
         retry_control_metrics = runner_runtime_status.retry_control_metrics()
@@ -71,6 +74,7 @@ async def runtime_status(session: AsyncSession = Depends(get_session)):
             "claiming": claiming_metrics,
             "pickup_safety": pickup_safety_metrics,
             "execution": execution_metrics,
+            "execution_session": execution_session_metrics,
             "execution_safety": execution_safety_metrics,
             "timeout_control": timeout_control_metrics,
             "retry_control": retry_control_metrics,

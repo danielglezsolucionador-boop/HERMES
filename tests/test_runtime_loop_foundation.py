@@ -251,6 +251,7 @@ async def test_runtime_loop_initializes_execution_foundation_metrics():
     task = asyncio.create_task(loop.run())
     await asyncio.sleep(0.03)
     execution = status.execution_metrics()
+    execution_session = status.execution_session_metrics()
     loop.request_stop("test_stop")
     await asyncio.wait_for(task, timeout=1)
 
@@ -260,6 +261,14 @@ async def test_runtime_loop_initializes_execution_foundation_metrics():
     assert execution["active_executions"] == 0
     assert execution["max_concurrent_executions"] == 1
     assert execution["runtime_owner"] == "hermes-runner:hermes-runtime"
+    assert execution_session["execution_session_enabled"] is True
+    assert execution_session["execution_session_status"] == "idle"
+    assert execution_session["session_state"] == "ready"
+    assert execution_session["active_sessions"] == 0
+    assert execution_session["max_active_sessions"] == 1
+    assert execution_session["max_log_entries"] == 100
+    assert execution_session["runtime_owner"] == "hermes-runner:hermes-runtime"
+    assert execution_session["runtime_protected"] is True
 
 
 @pytest.mark.asyncio

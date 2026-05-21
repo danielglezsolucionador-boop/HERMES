@@ -151,6 +151,33 @@ class RuntimeStatus:
         self.last_execution_duration_ms = 0
         self.execution_runtime_owner: str | None = None
         self.execution_reasons: list[str] = []
+        self.execution_session_started_at: datetime | None = None
+        self.last_execution_session_at: datetime | None = None
+        self.execution_session_iteration = 0
+        self.execution_session_enabled = False
+        self.execution_session_status = "stopped"
+        self.execution_session_state: str | None = None
+        self.execution_session_interval_seconds = 0.0
+        self.execution_session_last_duration_ms = 0
+        self.execution_session_errors = 0
+        self.execution_session_last_error: str | None = None
+        self.execution_session_runtime_protected = True
+        self.execution_session_active_sessions = 0
+        self.execution_session_max_active_sessions = 0
+        self.execution_session_max_log_entries = 0
+        self.execution_session_recovery_available = False
+        self.execution_session_runtime_owner: str | None = None
+        self.last_execution_session_id: str | None = None
+        self.last_execution_session_task_id: str | None = None
+        self.last_execution_session_phase_id: str | None = None
+        self.last_execution_session_audit_status: str | None = None
+        self.last_execution_session_checkpoint: str | None = None
+        self.last_execution_session_file_modified: str | None = None
+        self.last_execution_session_result: str | None = None
+        self.last_execution_session_error_detail: str | None = None
+        self.last_execution_session_audit: str | None = None
+        self.execution_session_snapshot: dict | None = None
+        self.execution_session_reasons: list[str] = []
         self.execution_safety_started_at: datetime | None = None
         self.last_execution_safety_at: datetime | None = None
         self.execution_safety_iteration = 0
@@ -619,6 +646,7 @@ class RuntimeStatus:
         self.claiming_status = "stopped"
         self.pickup_safety_status = "stopped"
         self.execution_status = "stopped"
+        self.execution_session_status = "stopped"
         self.execution_safety_status = "stopped"
         self.timeout_control_status = "stopped"
         self.retry_control_status = "stopped"
@@ -1025,6 +1053,92 @@ class RuntimeStatus:
         self.execution_errors += 1
         self.execution_status = "error"
         self.execution_last_error = error or "unknown_execution_error"
+
+    def mark_execution_session_started(
+        self,
+        enabled: bool,
+        interval_seconds: float,
+        max_active_sessions: int = 0,
+        max_log_entries: int = 0,
+        runtime_owner: str | None = None,
+    ) -> None:
+        self.execution_session_started_at = datetime.now(timezone.utc)
+        self.execution_session_enabled = bool(enabled)
+        self.execution_session_status = "active" if enabled else "disabled"
+        self.execution_session_state = "ready" if enabled else "disabled"
+        self.execution_session_interval_seconds = interval_seconds
+        self.execution_session_max_active_sessions = max(
+            0,
+            int(max_active_sessions or 0),
+        )
+        self.execution_session_max_log_entries = max(
+            0,
+            int(max_log_entries or 0),
+        )
+        self.execution_session_runtime_owner = runtime_owner
+        self.execution_session_last_error = None
+
+    def mark_execution_session_completed(self, result: dict) -> None:
+        self.last_execution_session_at = datetime.now(timezone.utc)
+        self.execution_session_iteration += 1
+        self.execution_session_status = result.get("status") or "unknown"
+        self.execution_session_state = result.get("session_state")
+        self.execution_session_last_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.execution_session_runtime_protected = bool(
+            result.get("runtime_protected", True)
+        )
+        self.execution_session_active_sessions = max(
+            0,
+            int(result.get("active_sessions") or 0),
+        )
+        self.execution_session_max_active_sessions = max(
+            0,
+            int(result.get("max_active_sessions") or 0),
+        )
+        self.execution_session_recovery_available = bool(
+            result.get("recovery_available")
+        )
+        self.execution_session_runtime_owner = result.get("runtime_owner")
+        self.last_execution_session_id = result.get("session_id")
+        self.last_execution_session_task_id = result.get("task_id")
+        self.last_execution_session_phase_id = result.get("phase_id")
+        self.last_execution_session_audit_status = result.get("audit_status")
+        self.last_execution_session_checkpoint = result.get("last_checkpoint")
+        self.last_execution_session_file_modified = result.get(
+            "last_file_modified"
+        )
+        self.last_execution_session_result = result.get("last_result")
+        self.last_execution_session_error_detail = result.get("last_error")
+        self.last_execution_session_audit = result.get("last_audit")
+        session = result.get("session")
+        self.execution_session_snapshot = (
+            dict(session) if isinstance(session, dict) else None
+        )
+        self.execution_session_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.execution_session_last_error = result.get("error")
+        if self.execution_session_status == "error":
+            self.execution_session_errors += 1
+
+    def mark_execution_session_error(
+        self,
+        error: str,
+        duration_ms: int = 0,
+    ) -> None:
+        self.last_execution_session_at = datetime.now(timezone.utc)
+        self.execution_session_iteration += 1
+        self.execution_session_last_duration_ms = max(0, int(duration_ms or 0))
+        self.execution_session_errors += 1
+        self.execution_session_status = "error"
+        self.execution_session_state = "error"
+        self.execution_session_runtime_protected = True
+        self.execution_session_last_error = (
+            error or "unknown_execution_session_error"
+        )
 
     def mark_execution_safety_started(
         self,
@@ -2408,6 +2522,44 @@ class RuntimeStatus:
             "reasons": list(self.execution_reasons),
         }
 
+    def execution_session_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "started_at": fmt(self.execution_session_started_at),
+            "last_execution_session_at": fmt(self.last_execution_session_at),
+            "execution_session_iteration": self.execution_session_iteration,
+            "execution_session_enabled": self.execution_session_enabled,
+            "execution_session_status": self.execution_session_status,
+            "session_state": self.execution_session_state,
+            "execution_session_interval_seconds": (
+                self.execution_session_interval_seconds
+            ),
+            "execution_session_last_duration_ms": (
+                self.execution_session_last_duration_ms
+            ),
+            "execution_session_errors": self.execution_session_errors,
+            "execution_session_last_error": self.execution_session_last_error,
+            "runtime_protected": self.execution_session_runtime_protected,
+            "active_sessions": self.execution_session_active_sessions,
+            "max_active_sessions": self.execution_session_max_active_sessions,
+            "max_log_entries": self.execution_session_max_log_entries,
+            "recovery_available": self.execution_session_recovery_available,
+            "runtime_owner": self.execution_session_runtime_owner,
+            "session_id": self.last_execution_session_id,
+            "task_id": self.last_execution_session_task_id,
+            "phase_id": self.last_execution_session_phase_id,
+            "audit_status": self.last_execution_session_audit_status,
+            "last_checkpoint": self.last_execution_session_checkpoint,
+            "last_file_modified": self.last_execution_session_file_modified,
+            "last_result": self.last_execution_session_result,
+            "last_error": self.last_execution_session_error_detail,
+            "last_audit": self.last_execution_session_audit,
+            "session": self.execution_session_snapshot,
+            "reasons": list(self.execution_session_reasons),
+        }
+
     def execution_safety_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -2927,6 +3079,7 @@ class RuntimeStatus:
             "claiming": self.claiming_metrics(),
             "pickup_safety": self.pickup_safety_metrics(),
             "execution": self.execution_metrics(),
+            "execution_session": self.execution_session_metrics(),
             "execution_safety": self.execution_safety_metrics(),
             "timeout_control": self.timeout_control_metrics(),
             "retry_control": self.retry_control_metrics(),

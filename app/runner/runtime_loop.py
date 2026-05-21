@@ -3,9 +3,9 @@ Runtime loop foundation for Hermes.
 
 This loop maintains runtime heartbeat and lifecycle state. Task claiming is
 controlled and disabled by default. It never executes or retries tasks.
-Execution, timeout control, provider bridge, response ingestion, response
-validation, response safety, and orchestration foundations are initialized for
-observability but do not run autonomous work.
+Execution sessions, timeout control, provider bridge, response ingestion,
+response validation, response safety, and orchestration foundations are
+initialized for observability but do not run autonomous work.
 """
 import asyncio
 import logging
@@ -19,6 +19,10 @@ from app.db.engine import AsyncSessionLocal
 from app.models.task import Task
 from app.runner.pickup_safety import PickupSafety, PickupSafetyResult
 from app.runner.execution_safety import ExecutionSafety, ExecutionSafetyResult
+from app.runner.execution_session import (
+    ExecutionSessionManager,
+    ExecutionSessionResult,
+)
 from app.runner.orchestration_foundation import (
     OrchestrationResult,
     OrchestrationRuntime,
@@ -56,6 +60,7 @@ class RuntimeLoop:
         task_discovery: Callable[[], Awaitable[TaskDiscoveryResult]] | None = None,
         task_claiming: Callable[[TaskDiscoveryResult], Awaitable[TaskClaimingResult]] | None = None,
         pickup_safety: Callable[[], Awaitable[PickupSafetyResult]] | None = None,
+        execution_session: Callable[[], Awaitable[ExecutionSessionResult]] | None = None,
         execution_safety: Callable[[], Awaitable[ExecutionSafetyResult]] | None = None,
         timeout_control: Callable[[], Awaitable[TimeoutControlResult]] | None = None,
         retry_control: Callable[[], Awaitable[RetryControlResult]] | None = None,
@@ -66,6 +71,7 @@ class RuntimeLoop:
         ) = None,
         claiming_enabled: bool = settings.TASK_CLAIMING_ENABLED,
         pickup_safety_enabled: bool = settings.TASK_PICKUP_SAFETY_ENABLED,
+        execution_session_enabled: bool = settings.EXECUTION_SESSION_ENABLED,
         execution_enabled: bool = settings.TASK_EXECUTION_ENABLED,
         execution_safety_enabled: bool = settings.TASK_EXECUTION_SAFETY_ENABLED,
         timeout_control_enabled: bool = settings.TIMEOUT_CONTROL_ENABLED,
@@ -100,6 +106,9 @@ class RuntimeLoop:
             )
         )
         self.pickup_safety = pickup_safety or PickupSafety().inspect
+        self.execution_session_enabled = bool(execution_session_enabled)
+        self.execution_session_manager = ExecutionSessionManager()
+        self.execution_session = execution_session or self._inspect_execution_session
         self.execution_enabled = bool(execution_enabled)
         self.task_execution_runtime = TaskExecutionRuntime()
         self.execution_safety_enabled = bool(execution_safety_enabled)
@@ -179,6 +188,11 @@ class RuntimeLoop:
             else:
                 claiming_result = await self.task_claiming(discovery_result)
             self.status.mark_task_claiming_completed(claiming_result.to_dict())
+        if self.execution_session_enabled:
+            execution_session_result = await self.execution_session()
+            self.status.mark_execution_session_completed(
+                execution_session_result.to_dict()
+            )
         if self.execution_safety_enabled:
             execution_safety_result = await self.execution_safety()
             self.status.mark_execution_safety_completed(
@@ -252,6 +266,9 @@ class RuntimeLoop:
             provider_available=True,
         )
 
+    async def _inspect_execution_session(self) -> ExecutionSessionResult:
+        return await self.execution_session_manager.inspect()
+
     async def _inspect_orchestration(self) -> OrchestrationResult:
         return await self.orchestration_runtime.inspect(
             runtime_active=not self._stop_requested,
@@ -298,6 +315,13 @@ class RuntimeLoop:
             max_duration_seconds=settings.TASK_EXECUTION_MAX_DURATION_SECONDS,
             max_runtime_load=settings.TASK_EXECUTION_MAX_RUNTIME_LOAD,
             max_memory_mb=settings.TASK_EXECUTION_MAX_MEMORY_MB,
+            runtime_owner=f"{settings.RUNNER_ID}:{settings.RUNTIME_ID}",
+        )
+        self.status.mark_execution_session_started(
+            enabled=self.execution_session_enabled,
+            interval_seconds=self.interval_seconds,
+            max_active_sessions=settings.EXECUTION_SESSION_MAX_ACTIVE,
+            max_log_entries=settings.EXECUTION_SESSION_MAX_LOG_ENTRIES,
             runtime_owner=f"{settings.RUNNER_ID}:{settings.RUNTIME_ID}",
         )
         self.status.mark_execution_safety_started(
@@ -417,6 +441,10 @@ class RuntimeLoop:
             "enabled" if self.execution_enabled else "disabled",
         )
         logger.info(
+            "runtime_loop: execution session %s",
+            "enabled" if self.execution_session_enabled else "disabled",
+        )
+        logger.info(
             "runtime_loop: execution safety %s",
             "enabled" if self.execution_safety_enabled else "disabled",
         )
@@ -479,6 +507,11 @@ class RuntimeLoop:
                         self.status.mark_task_claiming_error(str(exc), poll_duration_ms)
                     if self.execution_enabled:
                         self.status.mark_task_execution_error(str(exc), poll_duration_ms)
+                    if self.execution_session_enabled:
+                        self.status.mark_execution_session_error(
+                            str(exc),
+                            poll_duration_ms,
+                        )
                     if self.execution_safety_enabled:
                         self.status.mark_execution_safety_error(str(exc), poll_duration_ms)
                     if self.timeout_control_enabled:
