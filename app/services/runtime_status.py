@@ -1101,6 +1101,43 @@ class RuntimeStatus:
         self.ecosystem_registry_reasons: list[str] = []
         self.ecosystem_registry_last_error: str | None = None
         self.ecosystem_registry_metadata: dict = {}
+        self.last_executive_communication_at: datetime | None = None
+        self.executive_communication_iteration = 0
+        self.executive_communication_status = "stopped"
+        self.executive_communications_accepted = 0
+        self.executive_communications_reported = 0
+        self.executive_communications_blocked = 0
+        self.executive_communication_errors = 0
+        self.last_communication_id: str | None = None
+        self.communication_authority_source: str | None = None
+        self.communication_authority_level: str | None = None
+        self.communication_type: str | None = None
+        self.communication_instruction_type: str | None = None
+        self.communication_response_target: str | None = None
+        self.communication_execution_context: dict = {}
+        self.communication_governance_status: str | None = None
+        self.communication_report_status: str | None = None
+        self.communication_security_status: str | None = None
+        self.communication_operational_status: str | None = None
+        self.communication_audit_status: str | None = None
+        self.communication_blocking_status: str | None = None
+        self.communication_authority_identified = False
+        self.communication_response_target_valid = False
+        self.communication_governance_preserved = False
+        self.communication_security_integrity_preserved = False
+        self.communication_audit_consistency_preserved = False
+        self.communication_operational_continuity_preserved = False
+        self.communication_execution_transparency_preserved = False
+        self.communication_traceability_preserved = False
+        self.communication_executive_orchestration_blocked = False
+        self.communication_honest_reporting_preserved = False
+        self.communication_report_payload: dict = {}
+        self.communication_risks: list[str] = []
+        self.communication_lifecycle: list[dict] = []
+        self.executive_communication_duration_ms = 0
+        self.executive_communication_reasons: list[str] = []
+        self.executive_communication_last_error: str | None = None
+        self.executive_communication_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -4192,6 +4229,87 @@ class RuntimeStatus:
         else:
             self.ecosystem_registry_errors += 1
 
+    def mark_executive_communication_result(self, result: dict) -> None:
+        self.last_executive_communication_at = datetime.now(timezone.utc)
+        self.executive_communication_iteration += 1
+        self.executive_communication_status = result.get("status") or "unknown"
+        self.last_communication_id = result.get("communication_id")
+        self.communication_authority_source = result.get("authority_source")
+        self.communication_authority_level = result.get("authority_level")
+        self.communication_type = result.get("communication_type")
+        self.communication_instruction_type = result.get("instruction_type")
+        self.communication_response_target = result.get("response_target")
+        self.communication_execution_context = dict(
+            result.get("execution_context") or {}
+        )
+        self.communication_governance_status = result.get("governance_status")
+        self.communication_report_status = result.get("report_status")
+        self.communication_security_status = result.get("security_status")
+        self.communication_operational_status = result.get("operational_status")
+        self.communication_audit_status = result.get("audit_status")
+        self.communication_blocking_status = result.get("blocking_status")
+        self.communication_authority_identified = bool(
+            result.get("authority_identified")
+        )
+        self.communication_response_target_valid = bool(
+            result.get("response_target_valid")
+        )
+        self.communication_governance_preserved = bool(
+            result.get("governance_preserved")
+        )
+        self.communication_security_integrity_preserved = bool(
+            result.get("security_integrity_preserved")
+        )
+        self.communication_audit_consistency_preserved = bool(
+            result.get("audit_consistency_preserved")
+        )
+        self.communication_operational_continuity_preserved = bool(
+            result.get("operational_continuity_preserved")
+        )
+        self.communication_execution_transparency_preserved = bool(
+            result.get("execution_transparency_preserved")
+        )
+        self.communication_traceability_preserved = bool(
+            result.get("traceability_preserved")
+        )
+        self.communication_executive_orchestration_blocked = bool(
+            result.get("executive_orchestration_blocked")
+        )
+        self.communication_honest_reporting_preserved = bool(
+            result.get("honest_reporting_preserved")
+        )
+        self.communication_report_payload = dict(
+            result.get("report_payload") or {}
+        )
+        self.communication_risks = [
+            str(item) for item in (result.get("risks") or [])
+        ]
+        self.communication_lifecycle = [
+            dict(entry)
+            for entry in (result.get("communication_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.executive_communication_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.executive_communication_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.executive_communication_last_error = result.get("error")
+        self.executive_communication_metadata = dict(
+            result.get("metadata") or {}
+        )
+
+        if self.executive_communication_status == "accepted":
+            self.executive_communications_accepted += 1
+        elif self.executive_communication_status == "reported":
+            self.executive_communications_reported += 1
+        elif self.executive_communication_status == "blocked":
+            self.executive_communications_blocked += 1
+        else:
+            self.executive_communication_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -6279,6 +6397,80 @@ class RuntimeStatus:
             "metadata": dict(self.ecosystem_registry_metadata),
         }
 
+    def executive_communication_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_executive_communication_at": fmt(
+                self.last_executive_communication_at
+            ),
+            "executive_communication_iteration": (
+                self.executive_communication_iteration
+            ),
+            "executive_communication_status": (
+                self.executive_communication_status
+            ),
+            "executive_communications_accepted": (
+                self.executive_communications_accepted
+            ),
+            "executive_communications_reported": (
+                self.executive_communications_reported
+            ),
+            "executive_communications_blocked": (
+                self.executive_communications_blocked
+            ),
+            "executive_communication_errors": (
+                self.executive_communication_errors
+            ),
+            "communication_id": self.last_communication_id,
+            "authority_source": self.communication_authority_source,
+            "authority_level": self.communication_authority_level,
+            "communication_type": self.communication_type,
+            "instruction_type": self.communication_instruction_type,
+            "response_target": self.communication_response_target,
+            "execution_context": dict(self.communication_execution_context),
+            "governance_status": self.communication_governance_status,
+            "report_status": self.communication_report_status,
+            "security_status": self.communication_security_status,
+            "operational_status": self.communication_operational_status,
+            "audit_status": self.communication_audit_status,
+            "blocking_status": self.communication_blocking_status,
+            "authority_identified": self.communication_authority_identified,
+            "response_target_valid": self.communication_response_target_valid,
+            "governance_preserved": self.communication_governance_preserved,
+            "security_integrity_preserved": (
+                self.communication_security_integrity_preserved
+            ),
+            "audit_consistency_preserved": (
+                self.communication_audit_consistency_preserved
+            ),
+            "operational_continuity_preserved": (
+                self.communication_operational_continuity_preserved
+            ),
+            "execution_transparency_preserved": (
+                self.communication_execution_transparency_preserved
+            ),
+            "traceability_preserved": (
+                self.communication_traceability_preserved
+            ),
+            "executive_orchestration_blocked": (
+                self.communication_executive_orchestration_blocked
+            ),
+            "honest_reporting_preserved": (
+                self.communication_honest_reporting_preserved
+            ),
+            "report_payload": dict(self.communication_report_payload),
+            "risks": list(self.communication_risks),
+            "communication_lifecycle": [
+                dict(entry) for entry in self.communication_lifecycle
+            ],
+            "duration_ms": self.executive_communication_duration_ms,
+            "reasons": list(self.executive_communication_reasons),
+            "last_error": self.executive_communication_last_error,
+            "metadata": dict(self.executive_communication_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -6490,6 +6682,7 @@ class RuntimeStatus:
             "preference_adaptation": self.preference_adaptation_metrics(),
             "learning_safety": self.learning_safety_metrics(),
             "ecosystem_registry": self.ecosystem_registry_metrics(),
+            "executive_communication": self.executive_communication_metrics(),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
             "response_safety": self.response_safety_metrics(),
