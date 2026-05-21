@@ -1575,6 +1575,40 @@ class RuntimeStatus:
         self.sentinel_technical_validation_reasons: list[str] = []
         self.sentinel_technical_validation_last_error: str | None = None
         self.sentinel_technical_validation_metadata: dict = {}
+        self.last_sentinel_security_escalation_at: datetime | None = None
+        self.sentinel_security_escalation_iteration = 0
+        self.sentinel_security_escalation_status = "stopped"
+        self.sentinel_security_escalation_clear = 0
+        self.sentinel_security_escalation_escalated = 0
+        self.sentinel_security_escalation_blocked = 0
+        self.sentinel_security_escalation_errors = 0
+        self.sentinel_security_escalation_id: str | None = None
+        self.sentinel_security_execution_id: str | None = None
+        self.sentinel_security_task_id: str | None = None
+        self.sentinel_security_auditor: str | None = None
+        self.sentinel_security_target_authority: str | None = None
+        self.sentinel_threat_detected = False
+        self.sentinel_threat_severity: str | None = None
+        self.sentinel_security_observation: str | None = None
+        self.sentinel_escalation_required = False
+        self.sentinel_centinela_escalation_prepared = False
+        self.sentinel_security_continuation_blocked = False
+        self.sentinel_quarantine_recommended = False
+        self.sentinel_quarantine_status: str | None = None
+        self.sentinel_security_runtime_integrity_preserved = False
+        self.sentinel_security_governance_consistency_preserved = False
+        self.sentinel_security_integrity_preserved = False
+        self.sentinel_security_operational_stability_preserved = False
+        self.sentinel_security_execution_traceability_preserved = False
+        self.sentinel_detected_threats: list[str] = []
+        self.sentinel_suspicious_modifications: list[str] = []
+        self.sentinel_security_blocking_conditions: list[str] = []
+        self.sentinel_security_escalation_payload: dict = {}
+        self.sentinel_security_escalation_lifecycle: list[dict] = []
+        self.sentinel_security_escalation_duration_ms = 0
+        self.sentinel_security_escalation_reasons: list[str] = []
+        self.sentinel_security_escalation_last_error: str | None = None
+        self.sentinel_security_escalation_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -5862,6 +5896,91 @@ class RuntimeStatus:
         else:
             self.sentinel_technical_validation_errors += 1
 
+    def mark_sentinel_security_escalation_result(self, result: dict) -> None:
+        self.last_sentinel_security_escalation_at = datetime.now(timezone.utc)
+        self.sentinel_security_escalation_iteration += 1
+        self.sentinel_security_escalation_status = (
+            result.get("status") or "unknown"
+        )
+        self.sentinel_security_escalation_id = result.get("escalation_id")
+        self.sentinel_security_execution_id = result.get("execution_id")
+        self.sentinel_security_task_id = result.get("task_id")
+        self.sentinel_security_auditor = result.get("auditor")
+        self.sentinel_security_target_authority = result.get(
+            "target_authority"
+        )
+        self.sentinel_threat_detected = bool(result.get("threat_detected"))
+        self.sentinel_threat_severity = result.get("threat_severity")
+        self.sentinel_security_observation = result.get(
+            "security_observation"
+        )
+        self.sentinel_escalation_required = bool(
+            result.get("escalation_required")
+        )
+        self.sentinel_centinela_escalation_prepared = bool(
+            result.get("centinela_escalation_prepared")
+        )
+        self.sentinel_security_continuation_blocked = bool(
+            result.get("continuation_blocked")
+        )
+        self.sentinel_quarantine_recommended = bool(
+            result.get("quarantine_recommended")
+        )
+        self.sentinel_quarantine_status = result.get("quarantine_status")
+        self.sentinel_security_runtime_integrity_preserved = bool(
+            result.get("runtime_integrity_preserved")
+        )
+        self.sentinel_security_governance_consistency_preserved = bool(
+            result.get("governance_consistency_preserved")
+        )
+        self.sentinel_security_integrity_preserved = bool(
+            result.get("security_integrity_preserved")
+        )
+        self.sentinel_security_operational_stability_preserved = bool(
+            result.get("operational_stability_preserved")
+        )
+        self.sentinel_security_execution_traceability_preserved = bool(
+            result.get("execution_traceability_preserved")
+        )
+        self.sentinel_detected_threats = [
+            str(item) for item in (result.get("detected_threats") or [])
+        ]
+        self.sentinel_suspicious_modifications = [
+            str(item)
+            for item in (result.get("suspicious_modifications") or [])
+        ]
+        self.sentinel_security_blocking_conditions = [
+            str(item) for item in (result.get("blocking_conditions") or [])
+        ]
+        self.sentinel_security_escalation_payload = dict(
+            result.get("escalation_payload") or {}
+        )
+        self.sentinel_security_escalation_lifecycle = [
+            dict(entry)
+            for entry in (result.get("escalation_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.sentinel_security_escalation_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.sentinel_security_escalation_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.sentinel_security_escalation_last_error = result.get("error")
+        self.sentinel_security_escalation_metadata = dict(
+            result.get("metadata") or {}
+        )
+
+        if self.sentinel_security_escalation_status == "clear":
+            self.sentinel_security_escalation_clear += 1
+        elif self.sentinel_security_escalation_status == "escalated":
+            self.sentinel_security_escalation_escalated += 1
+        elif self.sentinel_security_escalation_status == "blocked":
+            self.sentinel_security_escalation_blocked += 1
+        else:
+            self.sentinel_security_escalation_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -8944,6 +9063,84 @@ class RuntimeStatus:
             "metadata": dict(self.sentinel_technical_validation_metadata),
         }
 
+    def sentinel_security_escalation_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_sentinel_security_escalation_at": fmt(
+                self.last_sentinel_security_escalation_at
+            ),
+            "sentinel_security_escalation_iteration": (
+                self.sentinel_security_escalation_iteration
+            ),
+            "sentinel_security_escalation_status": (
+                self.sentinel_security_escalation_status
+            ),
+            "sentinel_security_escalation_clear": (
+                self.sentinel_security_escalation_clear
+            ),
+            "sentinel_security_escalation_escalated": (
+                self.sentinel_security_escalation_escalated
+            ),
+            "sentinel_security_escalation_blocked": (
+                self.sentinel_security_escalation_blocked
+            ),
+            "sentinel_security_escalation_errors": (
+                self.sentinel_security_escalation_errors
+            ),
+            "escalation_id": self.sentinel_security_escalation_id,
+            "execution_id": self.sentinel_security_execution_id,
+            "task_id": self.sentinel_security_task_id,
+            "auditor": self.sentinel_security_auditor,
+            "target_authority": self.sentinel_security_target_authority,
+            "threat_detected": self.sentinel_threat_detected,
+            "threat_severity": self.sentinel_threat_severity,
+            "security_observation": self.sentinel_security_observation,
+            "escalation_required": self.sentinel_escalation_required,
+            "centinela_escalation_prepared": (
+                self.sentinel_centinela_escalation_prepared
+            ),
+            "continuation_blocked": (
+                self.sentinel_security_continuation_blocked
+            ),
+            "quarantine_recommended": self.sentinel_quarantine_recommended,
+            "quarantine_status": self.sentinel_quarantine_status,
+            "runtime_integrity_preserved": (
+                self.sentinel_security_runtime_integrity_preserved
+            ),
+            "governance_consistency_preserved": (
+                self.sentinel_security_governance_consistency_preserved
+            ),
+            "security_integrity_preserved": (
+                self.sentinel_security_integrity_preserved
+            ),
+            "operational_stability_preserved": (
+                self.sentinel_security_operational_stability_preserved
+            ),
+            "execution_traceability_preserved": (
+                self.sentinel_security_execution_traceability_preserved
+            ),
+            "detected_threats": list(self.sentinel_detected_threats),
+            "suspicious_modifications": list(
+                self.sentinel_suspicious_modifications
+            ),
+            "blocking_conditions": list(
+                self.sentinel_security_blocking_conditions
+            ),
+            "escalation_payload": dict(
+                self.sentinel_security_escalation_payload
+            ),
+            "escalation_lifecycle": [
+                dict(entry)
+                for entry in self.sentinel_security_escalation_lifecycle
+            ],
+            "duration_ms": self.sentinel_security_escalation_duration_ms,
+            "reasons": list(self.sentinel_security_escalation_reasons),
+            "last_error": self.sentinel_security_escalation_last_error,
+            "metadata": dict(self.sentinel_security_escalation_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -9176,6 +9373,9 @@ class RuntimeStatus:
             "sentinel_audit_pipeline": self.sentinel_audit_pipeline_metrics(),
             "sentinel_technical_validation": (
                 self.sentinel_technical_validation_metrics()
+            ),
+            "sentinel_security_escalation": (
+                self.sentinel_security_escalation_metrics()
             ),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
