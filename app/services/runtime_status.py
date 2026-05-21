@@ -1735,6 +1735,36 @@ class RuntimeStatus:
         self.apps_standards_reader_reasons: list[str] = []
         self.apps_standards_reader_last_error: str | None = None
         self.apps_standards_reader_metadata: dict = {}
+        self.last_dependency_context_builder_at: datetime | None = None
+        self.dependency_context_builder_iteration = 0
+        self.dependency_context_builder_status = "stopped"
+        self.dependency_context_builder_built = 0
+        self.dependency_context_builder_blocked = 0
+        self.dependency_context_builder_errors = 0
+        self.dependency_context_id: str | None = None
+        self.dependency_runtime_dependencies: list[dict] = []
+        self.dependency_execution_relationships: list[dict] = []
+        self.dependency_architecture_context: dict = {}
+        self.dependency_governance_context: dict = {}
+        self.dependency_operational_relationships: list[dict] = []
+        self.dependency_execution_compatibility: dict = {}
+        self.dependency_continuity_status: str | None = None
+        self.dependency_integrity_valid = False
+        self.dependency_runtime_compatibility_valid = False
+        self.dependency_governance_alignment_valid = False
+        self.dependency_architecture_consistency_valid = False
+        self.dependency_operational_continuity_valid = False
+        self.dependency_runtime_integrity_preserved = False
+        self.dependency_architecture_consistency_preserved = False
+        self.dependency_operational_continuity_preserved = False
+        self.dependency_execution_traceability_preserved = False
+        self.dependency_governance_alignment_preserved = False
+        self.dependency_human_visibility_payload: dict = {}
+        self.dependency_context_lifecycle: list[dict] = []
+        self.dependency_context_builder_duration_ms = 0
+        self.dependency_context_builder_reasons: list[str] = []
+        self.dependency_context_builder_last_error: str | None = None
+        self.dependency_context_builder_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -6450,6 +6480,95 @@ class RuntimeStatus:
         else:
             self.apps_standards_reader_errors += 1
 
+    def mark_dependency_context_builder_result(self, result: dict) -> None:
+        self.last_dependency_context_builder_at = datetime.now(timezone.utc)
+        self.dependency_context_builder_iteration += 1
+        self.dependency_context_builder_status = (
+            result.get("status") or "unknown"
+        )
+        self.dependency_context_id = result.get("context_id")
+        self.dependency_runtime_dependencies = [
+            dict(item)
+            for item in (result.get("runtime_dependencies") or [])
+            if isinstance(item, dict)
+        ]
+        self.dependency_execution_relationships = [
+            dict(item)
+            for item in (result.get("execution_relationships") or [])
+            if isinstance(item, dict)
+        ]
+        self.dependency_architecture_context = dict(
+            result.get("architecture_context") or {}
+        )
+        self.dependency_governance_context = dict(
+            result.get("governance_context") or {}
+        )
+        self.dependency_operational_relationships = [
+            dict(item)
+            for item in (result.get("operational_relationships") or [])
+            if isinstance(item, dict)
+        ]
+        self.dependency_execution_compatibility = dict(
+            result.get("execution_compatibility") or {}
+        )
+        self.dependency_continuity_status = result.get("continuity_status")
+        self.dependency_integrity_valid = bool(
+            result.get("dependency_integrity_valid")
+        )
+        self.dependency_runtime_compatibility_valid = bool(
+            result.get("runtime_compatibility_valid")
+        )
+        self.dependency_governance_alignment_valid = bool(
+            result.get("governance_alignment_valid")
+        )
+        self.dependency_architecture_consistency_valid = bool(
+            result.get("architecture_consistency_valid")
+        )
+        self.dependency_operational_continuity_valid = bool(
+            result.get("operational_continuity_valid")
+        )
+        self.dependency_runtime_integrity_preserved = bool(
+            result.get("runtime_integrity_preserved")
+        )
+        self.dependency_architecture_consistency_preserved = bool(
+            result.get("architecture_consistency_preserved")
+        )
+        self.dependency_operational_continuity_preserved = bool(
+            result.get("operational_continuity_preserved")
+        )
+        self.dependency_execution_traceability_preserved = bool(
+            result.get("execution_traceability_preserved")
+        )
+        self.dependency_governance_alignment_preserved = bool(
+            result.get("governance_alignment_preserved")
+        )
+        self.dependency_human_visibility_payload = dict(
+            result.get("human_visibility_payload") or {}
+        )
+        self.dependency_context_lifecycle = [
+            dict(entry)
+            for entry in (result.get("context_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.dependency_context_builder_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.dependency_context_builder_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.dependency_context_builder_last_error = result.get("error")
+        self.dependency_context_builder_metadata = dict(
+            result.get("metadata") or {}
+        )
+
+        if self.dependency_context_builder_status == "built":
+            self.dependency_context_builder_built += 1
+        elif self.dependency_context_builder_status == "blocked":
+            self.dependency_context_builder_blocked += 1
+        else:
+            self.dependency_context_builder_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -9896,6 +10015,86 @@ class RuntimeStatus:
             "metadata": dict(self.apps_standards_reader_metadata),
         }
 
+    def dependency_context_builder_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_dependency_context_builder_at": fmt(
+                self.last_dependency_context_builder_at
+            ),
+            "dependency_context_builder_iteration": (
+                self.dependency_context_builder_iteration
+            ),
+            "dependency_context_builder_status": (
+                self.dependency_context_builder_status
+            ),
+            "dependency_context_builder_built": (
+                self.dependency_context_builder_built
+            ),
+            "dependency_context_builder_blocked": (
+                self.dependency_context_builder_blocked
+            ),
+            "dependency_context_builder_errors": (
+                self.dependency_context_builder_errors
+            ),
+            "context_id": self.dependency_context_id,
+            "runtime_dependencies": [
+                dict(item) for item in self.dependency_runtime_dependencies
+            ],
+            "execution_relationships": [
+                dict(item) for item in self.dependency_execution_relationships
+            ],
+            "architecture_context": dict(self.dependency_architecture_context),
+            "governance_context": dict(self.dependency_governance_context),
+            "operational_relationships": [
+                dict(item)
+                for item in self.dependency_operational_relationships
+            ],
+            "execution_compatibility": dict(
+                self.dependency_execution_compatibility
+            ),
+            "continuity_status": self.dependency_continuity_status,
+            "dependency_integrity_valid": self.dependency_integrity_valid,
+            "runtime_compatibility_valid": (
+                self.dependency_runtime_compatibility_valid
+            ),
+            "governance_alignment_valid": (
+                self.dependency_governance_alignment_valid
+            ),
+            "architecture_consistency_valid": (
+                self.dependency_architecture_consistency_valid
+            ),
+            "operational_continuity_valid": (
+                self.dependency_operational_continuity_valid
+            ),
+            "runtime_integrity_preserved": (
+                self.dependency_runtime_integrity_preserved
+            ),
+            "architecture_consistency_preserved": (
+                self.dependency_architecture_consistency_preserved
+            ),
+            "operational_continuity_preserved": (
+                self.dependency_operational_continuity_preserved
+            ),
+            "execution_traceability_preserved": (
+                self.dependency_execution_traceability_preserved
+            ),
+            "governance_alignment_preserved": (
+                self.dependency_governance_alignment_preserved
+            ),
+            "human_visibility_payload": dict(
+                self.dependency_human_visibility_payload
+            ),
+            "context_lifecycle": [
+                dict(entry) for entry in self.dependency_context_lifecycle
+            ],
+            "duration_ms": self.dependency_context_builder_duration_ms,
+            "reasons": list(self.dependency_context_builder_reasons),
+            "last_error": self.dependency_context_builder_last_error,
+            "metadata": dict(self.dependency_context_builder_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -10141,6 +10340,9 @@ class RuntimeStatus:
             ),
             "apps_standards_reader": (
                 self.apps_standards_reader_metrics()
+            ),
+            "dependency_context_builder": (
+                self.dependency_context_builder_metrics()
             ),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),

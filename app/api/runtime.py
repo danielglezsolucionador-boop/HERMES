@@ -138,6 +138,9 @@ async def runtime_status(session: AsyncSession = Depends(get_session)):
         apps_standards_reader_metrics = (
             runner_runtime_status.apps_standards_reader_metrics()
         )
+        dependency_context_builder_metrics = (
+            runner_runtime_status.dependency_context_builder_metrics()
+        )
         response_ingestion_metrics = runner_runtime_status.response_ingestion_metrics()
         response_validation_metrics = runner_runtime_status.response_validation_metrics()
         response_safety_metrics = runner_runtime_status.response_safety_metrics()
@@ -213,6 +216,9 @@ async def runtime_status(session: AsyncSession = Depends(get_session)):
             "knowledge_core_reader": knowledge_core_reader_metrics,
             "phases_roadmap_reader": phases_roadmap_reader_metrics,
             "apps_standards_reader": apps_standards_reader_metrics,
+            "dependency_context_builder": (
+                dependency_context_builder_metrics
+            ),
             "response_ingestion": response_ingestion_metrics,
             "response_validation": response_validation_metrics,
             "response_safety": response_safety_metrics,
