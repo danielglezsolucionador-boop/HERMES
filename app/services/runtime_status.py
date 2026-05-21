@@ -987,6 +987,45 @@ class RuntimeStatus:
         self.workflow_learning_reasons: list[str] = []
         self.workflow_learning_last_error: str | None = None
         self.workflow_learning_metadata: dict = {}
+        self.last_preference_adaptation_at: datetime | None = None
+        self.preference_adaptation_iteration = 0
+        self.preference_adaptation_status = "stopped"
+        self.preference_adaptations_learned = 0
+        self.preference_adaptations_applied = 0
+        self.preference_adaptations_no_preferences = 0
+        self.preference_adaptations_blocked = 0
+        self.preference_adaptation_errors = 0
+        self.last_adaptation_id: str | None = None
+        self.adaptation_preference_type: str | None = None
+        self.adaptation_human_context: dict = {}
+        self.adaptation_status_state: str | None = None
+        self.adaptation_governance_status: str | None = None
+        self.adaptation_validation_status: str | None = None
+        self.adaptation_application_status: str | None = None
+        self.adaptation_governance_compliant = False
+        self.adaptation_operational_safe = False
+        self.adaptation_validation_consistent = False
+        self.adaptation_human_authority_preserved = False
+        self.adaptation_context_safe = False
+        self.adaptation_transparency_preserved = False
+        self.adaptation_objectives_preserved = False
+        self.adaptation_manipulation_blocked = False
+        self.adaptation_dependency_risk_controlled = False
+        self.adaptation_preferences_detected: list[dict] = []
+        self.adaptation_reporting_adjustments: list[str] = []
+        self.adaptation_workflow_adjustments: list[str] = []
+        self.adaptation_governance_preferences: list[str] = []
+        self.adaptation_execution_preferences: list[str] = []
+        self.adaptation_communication_adjustments: list[str] = []
+        self.adaptation_interaction_history: list[dict] = []
+        self.adaptation_decision_history: list[dict] = []
+        self.adaptation_approval_history: list[dict] = []
+        self.adaptation_rejection_history: list[dict] = []
+        self.adaptation_lifecycle: list[dict] = []
+        self.preference_adaptation_duration_ms = 0
+        self.preference_adaptation_reasons: list[str] = []
+        self.preference_adaptation_last_error: str | None = None
+        self.preference_adaptation_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -3794,6 +3833,107 @@ class RuntimeStatus:
         else:
             self.workflow_learning_errors += 1
 
+    def mark_preference_adaptation_result(self, result: dict) -> None:
+        self.last_preference_adaptation_at = datetime.now(timezone.utc)
+        self.preference_adaptation_iteration += 1
+        self.preference_adaptation_status = result.get("status") or "unknown"
+        self.last_adaptation_id = result.get("adaptation_id")
+        self.adaptation_preference_type = result.get("preference_type")
+        self.adaptation_human_context = dict(result.get("human_context") or {})
+        self.adaptation_status_state = result.get("adaptation_status")
+        self.adaptation_governance_status = result.get("governance_status")
+        self.adaptation_validation_status = result.get("validation_status")
+        self.adaptation_application_status = result.get("application_status")
+        self.adaptation_governance_compliant = bool(
+            result.get("governance_compliant")
+        )
+        self.adaptation_operational_safe = bool(result.get("operational_safe"))
+        self.adaptation_validation_consistent = bool(
+            result.get("validation_consistent")
+        )
+        self.adaptation_human_authority_preserved = bool(
+            result.get("human_authority_preserved")
+        )
+        self.adaptation_context_safe = bool(result.get("context_safe"))
+        self.adaptation_transparency_preserved = bool(
+            result.get("transparency_preserved")
+        )
+        self.adaptation_objectives_preserved = bool(
+            result.get("objectives_preserved")
+        )
+        self.adaptation_manipulation_blocked = bool(
+            result.get("manipulation_blocked")
+        )
+        self.adaptation_dependency_risk_controlled = bool(
+            result.get("dependency_risk_controlled")
+        )
+        self.adaptation_preferences_detected = [
+            dict(preference)
+            for preference in (result.get("preferences_detected") or [])
+            if isinstance(preference, dict)
+        ]
+        self.adaptation_reporting_adjustments = [
+            str(item) for item in (result.get("reporting_adjustments") or [])
+        ]
+        self.adaptation_workflow_adjustments = [
+            str(item) for item in (result.get("workflow_adjustments") or [])
+        ]
+        self.adaptation_governance_preferences = [
+            str(item) for item in (result.get("governance_preferences") or [])
+        ]
+        self.adaptation_execution_preferences = [
+            str(item) for item in (result.get("execution_preferences") or [])
+        ]
+        self.adaptation_communication_adjustments = [
+            str(item)
+            for item in (result.get("communication_adjustments") or [])
+        ]
+        self.adaptation_interaction_history = [
+            dict(entry)
+            for entry in (result.get("interaction_history") or [])
+            if isinstance(entry, dict)
+        ]
+        self.adaptation_decision_history = [
+            dict(entry)
+            for entry in (result.get("decision_history") or [])
+            if isinstance(entry, dict)
+        ]
+        self.adaptation_approval_history = [
+            dict(entry)
+            for entry in (result.get("approval_history") or [])
+            if isinstance(entry, dict)
+        ]
+        self.adaptation_rejection_history = [
+            dict(entry)
+            for entry in (result.get("rejection_history") or [])
+            if isinstance(entry, dict)
+        ]
+        self.adaptation_lifecycle = [
+            dict(entry)
+            for entry in (result.get("adaptation_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.preference_adaptation_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.preference_adaptation_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.preference_adaptation_last_error = result.get("error")
+        self.preference_adaptation_metadata = dict(result.get("metadata") or {})
+
+        if self.preference_adaptation_status == "adapted":
+            self.preference_adaptations_learned += 1
+            if self.adaptation_application_status == "applied":
+                self.preference_adaptations_applied += 1
+        elif self.preference_adaptation_status == "no_preferences":
+            self.preference_adaptations_no_preferences += 1
+        elif self.preference_adaptation_status == "blocked":
+            self.preference_adaptations_blocked += 1
+        else:
+            self.preference_adaptation_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -5648,6 +5788,94 @@ class RuntimeStatus:
             "metadata": dict(self.workflow_learning_metadata),
         }
 
+    def preference_adaptation_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_preference_adaptation_at": fmt(
+                self.last_preference_adaptation_at
+            ),
+            "preference_adaptation_iteration": (
+                self.preference_adaptation_iteration
+            ),
+            "preference_adaptation_status": self.preference_adaptation_status,
+            "preference_adaptations_learned": (
+                self.preference_adaptations_learned
+            ),
+            "preference_adaptations_applied": (
+                self.preference_adaptations_applied
+            ),
+            "preference_adaptations_no_preferences": (
+                self.preference_adaptations_no_preferences
+            ),
+            "preference_adaptations_blocked": (
+                self.preference_adaptations_blocked
+            ),
+            "preference_adaptation_errors": self.preference_adaptation_errors,
+            "adaptation_id": self.last_adaptation_id,
+            "preference_type": self.adaptation_preference_type,
+            "human_context": dict(self.adaptation_human_context),
+            "adaptation_status": self.adaptation_status_state,
+            "governance_status": self.adaptation_governance_status,
+            "validation_status": self.adaptation_validation_status,
+            "application_status": self.adaptation_application_status,
+            "governance_compliant": self.adaptation_governance_compliant,
+            "operational_safe": self.adaptation_operational_safe,
+            "validation_consistent": self.adaptation_validation_consistent,
+            "human_authority_preserved": (
+                self.adaptation_human_authority_preserved
+            ),
+            "context_safe": self.adaptation_context_safe,
+            "transparency_preserved": self.adaptation_transparency_preserved,
+            "objectives_preserved": self.adaptation_objectives_preserved,
+            "manipulation_blocked": self.adaptation_manipulation_blocked,
+            "dependency_risk_controlled": (
+                self.adaptation_dependency_risk_controlled
+            ),
+            "preferences_detected": [
+                dict(preference)
+                for preference in self.adaptation_preferences_detected
+            ],
+            "preferences_detected_count": len(
+                self.adaptation_preferences_detected
+            ),
+            "reporting_adjustments": list(
+                self.adaptation_reporting_adjustments
+            ),
+            "workflow_adjustments": list(
+                self.adaptation_workflow_adjustments
+            ),
+            "governance_preferences": list(
+                self.adaptation_governance_preferences
+            ),
+            "execution_preferences": list(
+                self.adaptation_execution_preferences
+            ),
+            "communication_adjustments": list(
+                self.adaptation_communication_adjustments
+            ),
+            "interaction_history": [
+                dict(entry) for entry in self.adaptation_interaction_history
+            ],
+            "decision_history": [
+                dict(entry) for entry in self.adaptation_decision_history
+            ],
+            "approval_history": [
+                dict(entry) for entry in self.adaptation_approval_history
+            ],
+            "rejection_history": [
+                dict(entry) for entry in self.adaptation_rejection_history
+            ],
+            "adaptation_lifecycle": [
+                dict(entry) for entry in self.adaptation_lifecycle
+            ],
+            "duration_ms": self.preference_adaptation_duration_ms,
+            "reasons": list(self.preference_adaptation_reasons),
+            "last_error": self.preference_adaptation_last_error,
+            "metadata": dict(self.preference_adaptation_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -5856,6 +6084,7 @@ class RuntimeStatus:
             "continuation_safety": self.continuation_safety_metrics(),
             "operational_memory": self.operational_memory_metrics(),
             "workflow_learning": self.workflow_learning_metrics(),
+            "preference_adaptation": self.preference_adaptation_metrics(),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
             "response_safety": self.response_safety_metrics(),
