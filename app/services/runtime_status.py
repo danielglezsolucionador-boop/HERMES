@@ -481,6 +481,37 @@ class RuntimeStatus:
         self.provider_response_reasons: list[str] = []
         self.provider_response_last_error: str | None = None
         self.provider_response_lifecycle: list[dict] = []
+        self.last_provider_failure_control_at: datetime | None = None
+        self.provider_failure_control_iteration = 0
+        self.provider_failure_control_status = "stopped"
+        self.provider_failure_detected = False
+        self.provider_failures_detected = 0
+        self.provider_failures_contained = 0
+        self.provider_failures_blocked = 0
+        self.provider_failures_escalated = 0
+        self.provider_failure_control_errors = 0
+        self.last_provider_failure_id: str | None = None
+        self.provider_failure_provider_id: str | None = None
+        self.provider_failure_execution_id: str | None = None
+        self.provider_failure_task_id: str | None = None
+        self.provider_failure_request_id: str | None = None
+        self.provider_failure_session_id: str | None = None
+        self.provider_failure_type: str | None = None
+        self.provider_failure_severity: str | None = None
+        self.provider_failure_state: str | None = None
+        self.provider_failure_recovery_status = "not_required"
+        self.provider_failure_runtime_state: str | None = None
+        self.provider_failure_execution_impact = "none"
+        self.provider_failure_continuation_blocked = False
+        self.provider_failure_context_preserved = True
+        self.provider_failure_recovery_prepared = False
+        self.provider_failure_escalation_required = False
+        self.provider_failure_duration_ms = 0
+        self.provider_failure_timestamps: dict = {}
+        self.provider_failure_lifecycle: list[dict] = []
+        self.provider_failure_reasons: list[str] = []
+        self.provider_failure_last_error: str | None = None
+        self.provider_failure_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -2166,6 +2197,69 @@ class RuntimeStatus:
         else:
             self.provider_responses_failed += 1
 
+    def mark_provider_failure_control_result(self, result: dict) -> None:
+        self.last_provider_failure_control_at = datetime.now(timezone.utc)
+        self.provider_failure_control_iteration += 1
+        self.provider_failure_control_status = result.get("status") or "unknown"
+        self.provider_failure_detected = bool(result.get("failure_detected"))
+        self.last_provider_failure_id = result.get("failure_id")
+        self.provider_failure_provider_id = result.get("provider_id")
+        self.provider_failure_execution_id = result.get("execution_id")
+        self.provider_failure_task_id = result.get("task_id")
+        self.provider_failure_request_id = result.get("provider_request_id")
+        self.provider_failure_session_id = result.get("provider_session_id")
+        self.provider_failure_type = result.get("failure_type")
+        self.provider_failure_severity = result.get("failure_severity")
+        self.provider_failure_state = result.get("failure_status")
+        self.provider_failure_recovery_status = (
+            result.get("recovery_status") or "not_required"
+        )
+        self.provider_failure_runtime_state = result.get("runtime_state")
+        self.provider_failure_execution_impact = (
+            result.get("execution_impact") or "none"
+        )
+        self.provider_failure_continuation_blocked = bool(
+            result.get("continuation_blocked")
+        )
+        self.provider_failure_context_preserved = bool(
+            result.get("context_preserved")
+        )
+        self.provider_failure_recovery_prepared = bool(
+            result.get("recovery_prepared")
+        )
+        self.provider_failure_escalation_required = bool(
+            result.get("escalation_required")
+        )
+        self.provider_failure_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.provider_failure_timestamps = dict(result.get("timestamps") or {})
+        self.provider_failure_lifecycle = [
+            dict(entry)
+            for entry in (result.get("lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.provider_failure_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.provider_failure_last_error = result.get("error")
+        self.provider_failure_metadata = dict(result.get("metadata") or {})
+        if self.provider_failure_detected:
+            self.provider_failures_detected += 1
+            if self.provider_failure_state in {
+                "contained",
+                "blocked",
+                "recovery_pending",
+            }:
+                self.provider_failures_contained += 1
+            if self.provider_failure_continuation_blocked:
+                self.provider_failures_blocked += 1
+            if self.provider_failure_escalation_required:
+                self.provider_failures_escalated += 1
+        if self.provider_failure_control_status == "error":
+            self.provider_failure_control_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -3240,6 +3334,58 @@ class RuntimeStatus:
             "lifecycle": [dict(entry) for entry in self.provider_response_lifecycle],
         }
 
+    def provider_failure_control_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_provider_failure_control_at": fmt(
+                self.last_provider_failure_control_at
+            ),
+            "provider_failure_control_iteration": (
+                self.provider_failure_control_iteration
+            ),
+            "provider_failure_control_status": (
+                self.provider_failure_control_status
+            ),
+            "failure_detected": self.provider_failure_detected,
+            "provider_failures_detected": self.provider_failures_detected,
+            "provider_failures_contained": self.provider_failures_contained,
+            "provider_failures_blocked": self.provider_failures_blocked,
+            "provider_failures_escalated": self.provider_failures_escalated,
+            "provider_failure_control_errors": (
+                self.provider_failure_control_errors
+            ),
+            "failure_id": self.last_provider_failure_id,
+            "provider_id": self.provider_failure_provider_id,
+            "execution_id": self.provider_failure_execution_id,
+            "task_id": self.provider_failure_task_id,
+            "provider_request_id": self.provider_failure_request_id,
+            "provider_session_id": self.provider_failure_session_id,
+            "failure_type": self.provider_failure_type,
+            "failure_severity": self.provider_failure_severity,
+            "failure_status": self.provider_failure_state,
+            "recovery_status": self.provider_failure_recovery_status,
+            "runtime_state": self.provider_failure_runtime_state,
+            "execution_impact": self.provider_failure_execution_impact,
+            "continuation_blocked": (
+                self.provider_failure_continuation_blocked
+            ),
+            "context_preserved": self.provider_failure_context_preserved,
+            "recovery_prepared": self.provider_failure_recovery_prepared,
+            "escalation_required": (
+                self.provider_failure_escalation_required
+            ),
+            "duration_ms": self.provider_failure_duration_ms,
+            "timestamps": dict(self.provider_failure_timestamps),
+            "lifecycle": [
+                dict(entry) for entry in self.provider_failure_lifecycle
+            ],
+            "reasons": list(self.provider_failure_reasons),
+            "last_error": self.provider_failure_last_error,
+            "metadata": dict(self.provider_failure_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -3434,6 +3580,7 @@ class RuntimeStatus:
             "provider_response_handling": (
                 self.provider_response_handling_metrics()
             ),
+            "provider_failure_control": self.provider_failure_control_metrics(),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
             "response_safety": self.response_safety_metrics(),
