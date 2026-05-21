@@ -156,6 +156,9 @@ async def runtime_status(session: AsyncSession = Depends(get_session)):
         workflow_recovery_control_metrics = (
             runner_runtime_status.workflow_recovery_control_metrics()
         )
+        workflow_validation_metrics = (
+            runner_runtime_status.workflow_validation_metrics()
+        )
         response_ingestion_metrics = runner_runtime_status.response_ingestion_metrics()
         response_validation_metrics = runner_runtime_status.response_validation_metrics()
         response_safety_metrics = runner_runtime_status.response_safety_metrics()
@@ -249,6 +252,7 @@ async def runtime_status(session: AsyncSession = Depends(get_session)):
             "workflow_recovery_control": (
                 workflow_recovery_control_metrics
             ),
+            "workflow_validation": workflow_validation_metrics,
             "response_ingestion": response_ingestion_metrics,
             "response_validation": response_validation_metrics,
             "response_safety": response_safety_metrics,

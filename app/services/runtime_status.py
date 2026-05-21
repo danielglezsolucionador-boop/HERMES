@@ -1930,6 +1930,38 @@ class RuntimeStatus:
         self.workflow_recovery_control_reasons: list[str] = []
         self.workflow_recovery_control_last_error: str | None = None
         self.workflow_recovery_control_metadata: dict = {}
+        self.last_workflow_validation_at: datetime | None = None
+        self.workflow_validation_iteration = 0
+        self.workflow_validation_status = "stopped"
+        self.workflow_validations_validated = 0
+        self.workflow_validations_blocked = 0
+        self.workflow_validation_errors = 0
+        self.workflow_validation_id: str | None = None
+        self.workflow_validation_workflow_id: str | None = None
+        self.workflow_validation_workflow_status: str | None = None
+        self.workflow_validation_continuation_status: str | None = None
+        self.workflow_validation_governance_status: str | None = None
+        self.workflow_validation_workflow_valid = False
+        self.workflow_validation_execution_valid = False
+        self.workflow_validation_runtime_valid = False
+        self.workflow_validation_governance_valid = False
+        self.workflow_validation_continuity_valid = False
+        self.workflow_validation_operational_valid = False
+        self.workflow_validation_safe = False
+        self.workflow_validation_continuation_allowed = False
+        self.workflow_validation_integrity_preserved = False
+        self.workflow_validation_traceability_preserved = False
+        self.workflow_validation_governance_consistency_preserved = False
+        self.workflow_validation_operational_continuity_preserved = False
+        self.workflow_validation_detected_inconsistencies: list[str] = []
+        self.workflow_validation_blocking_conditions: list[str] = []
+        self.workflow_validation_report: dict = {}
+        self.workflow_validation_visibility_payload: dict = {}
+        self.workflow_validation_lifecycle: list[dict] = []
+        self.workflow_validation_duration_ms = 0
+        self.workflow_validation_reasons: list[str] = []
+        self.workflow_validation_last_error: str | None = None
+        self.workflow_validation_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -7156,6 +7188,90 @@ class RuntimeStatus:
         else:
             self.workflow_recovery_control_errors += 1
 
+    def mark_workflow_validation_result(self, result: dict) -> None:
+        self.last_workflow_validation_at = datetime.now(timezone.utc)
+        self.workflow_validation_iteration += 1
+        self.workflow_validation_status = result.get("status") or "unknown"
+        self.workflow_validation_id = result.get("validation_id")
+        self.workflow_validation_workflow_id = result.get("workflow_id")
+        self.workflow_validation_workflow_status = result.get(
+            "workflow_status"
+        )
+        self.workflow_validation_continuation_status = result.get(
+            "continuation_status"
+        )
+        self.workflow_validation_governance_status = result.get(
+            "governance_status"
+        )
+        self.workflow_validation_workflow_valid = bool(
+            result.get("workflow_validation_valid")
+        )
+        self.workflow_validation_execution_valid = bool(
+            result.get("execution_validation_valid")
+        )
+        self.workflow_validation_runtime_valid = bool(
+            result.get("runtime_validation_valid")
+        )
+        self.workflow_validation_governance_valid = bool(
+            result.get("governance_validation_valid")
+        )
+        self.workflow_validation_continuity_valid = bool(
+            result.get("continuity_validation_valid")
+        )
+        self.workflow_validation_operational_valid = bool(
+            result.get("operational_validation_valid")
+        )
+        self.workflow_validation_safe = bool(result.get("workflow_safe"))
+        self.workflow_validation_continuation_allowed = bool(
+            result.get("continuation_allowed")
+        )
+        self.workflow_validation_integrity_preserved = bool(
+            result.get("workflow_integrity_preserved")
+        )
+        self.workflow_validation_traceability_preserved = bool(
+            result.get("execution_traceability_preserved")
+        )
+        self.workflow_validation_governance_consistency_preserved = bool(
+            result.get("governance_consistency_preserved")
+        )
+        self.workflow_validation_operational_continuity_preserved = bool(
+            result.get("operational_continuity_preserved")
+        )
+        self.workflow_validation_detected_inconsistencies = [
+            str(item)
+            for item in (result.get("detected_inconsistencies") or [])
+        ]
+        self.workflow_validation_blocking_conditions = [
+            str(item) for item in (result.get("blocking_conditions") or [])
+        ]
+        self.workflow_validation_report = dict(
+            result.get("validation_report") or {}
+        )
+        self.workflow_validation_visibility_payload = dict(
+            result.get("human_visibility_payload") or {}
+        )
+        self.workflow_validation_lifecycle = [
+            dict(entry)
+            for entry in (result.get("validation_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.workflow_validation_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.workflow_validation_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.workflow_validation_last_error = result.get("error")
+        self.workflow_validation_metadata = dict(result.get("metadata") or {})
+
+        if self.workflow_validation_status == "validated":
+            self.workflow_validations_validated += 1
+        elif self.workflow_validation_status == "blocked":
+            self.workflow_validations_blocked += 1
+        else:
+            self.workflow_validation_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -11042,6 +11158,83 @@ class RuntimeStatus:
             "metadata": dict(self.workflow_recovery_control_metadata),
         }
 
+    def workflow_validation_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_workflow_validation_at": fmt(
+                self.last_workflow_validation_at
+            ),
+            "workflow_validation_iteration": (
+                self.workflow_validation_iteration
+            ),
+            "workflow_validation_status": self.workflow_validation_status,
+            "workflow_validations_validated": (
+                self.workflow_validations_validated
+            ),
+            "workflow_validations_blocked": (
+                self.workflow_validations_blocked
+            ),
+            "workflow_validation_errors": self.workflow_validation_errors,
+            "validation_id": self.workflow_validation_id,
+            "workflow_id": self.workflow_validation_workflow_id,
+            "workflow_status": self.workflow_validation_workflow_status,
+            "continuation_status": (
+                self.workflow_validation_continuation_status
+            ),
+            "governance_status": self.workflow_validation_governance_status,
+            "workflow_validation_valid": (
+                self.workflow_validation_workflow_valid
+            ),
+            "execution_validation_valid": (
+                self.workflow_validation_execution_valid
+            ),
+            "runtime_validation_valid": self.workflow_validation_runtime_valid,
+            "governance_validation_valid": (
+                self.workflow_validation_governance_valid
+            ),
+            "continuity_validation_valid": (
+                self.workflow_validation_continuity_valid
+            ),
+            "operational_validation_valid": (
+                self.workflow_validation_operational_valid
+            ),
+            "workflow_safe": self.workflow_validation_safe,
+            "continuation_allowed": (
+                self.workflow_validation_continuation_allowed
+            ),
+            "workflow_integrity_preserved": (
+                self.workflow_validation_integrity_preserved
+            ),
+            "execution_traceability_preserved": (
+                self.workflow_validation_traceability_preserved
+            ),
+            "governance_consistency_preserved": (
+                self.workflow_validation_governance_consistency_preserved
+            ),
+            "operational_continuity_preserved": (
+                self.workflow_validation_operational_continuity_preserved
+            ),
+            "detected_inconsistencies": list(
+                self.workflow_validation_detected_inconsistencies
+            ),
+            "blocking_conditions": list(
+                self.workflow_validation_blocking_conditions
+            ),
+            "validation_report": dict(self.workflow_validation_report),
+            "human_visibility_payload": dict(
+                self.workflow_validation_visibility_payload
+            ),
+            "validation_lifecycle": [
+                dict(entry) for entry in self.workflow_validation_lifecycle
+            ],
+            "duration_ms": self.workflow_validation_duration_ms,
+            "reasons": list(self.workflow_validation_reasons),
+            "last_error": self.workflow_validation_last_error,
+            "metadata": dict(self.workflow_validation_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -11306,6 +11499,7 @@ class RuntimeStatus:
             "workflow_recovery_control": (
                 self.workflow_recovery_control_metrics()
             ),
+            "workflow_validation": self.workflow_validation_metrics(),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
             "response_safety": self.response_safety_metrics(),
