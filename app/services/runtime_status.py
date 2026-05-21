@@ -1407,6 +1407,41 @@ class RuntimeStatus:
         self.vulcan_prompt_protocol_reasons: list[str] = []
         self.vulcan_prompt_protocol_last_error: str | None = None
         self.vulcan_prompt_protocol_metadata: dict = {}
+        self.last_vulcan_scope_enforcement_at: datetime | None = None
+        self.vulcan_scope_enforcement_iteration = 0
+        self.vulcan_scope_enforcement_status = "stopped"
+        self.vulcan_scope_enforcement_enforced = 0
+        self.vulcan_scope_enforcement_blocked = 0
+        self.vulcan_scope_enforcement_errors = 0
+        self.vulcan_scope_enforcement_id: str | None = None
+        self.vulcan_scope_execution_id: str | None = None
+        self.vulcan_scope_technical_scope: str | None = None
+        self.vulcan_scope_authorized_files: list[str] = []
+        self.vulcan_scope_proposed_files: list[str] = []
+        self.vulcan_scope_modified_files: list[str] = []
+        self.vulcan_scope_protected_systems: list[str] = []
+        self.vulcan_scope_execution_limits: dict = {}
+        self.vulcan_scope_architecture_boundaries: dict = {}
+        self.vulcan_scope_governance_restrictions: list[str] = []
+        self.vulcan_scope_blocking_conditions: list[str] = []
+        self.vulcan_scope_compliant = False
+        self.vulcan_scope_files_authorized = False
+        self.vulcan_scope_protected_systems_preserved = True
+        self.vulcan_scope_execution_limits_preserved = True
+        self.vulcan_scope_architecture_boundaries_preserved = True
+        self.vulcan_scope_governance_restrictions_respected = True
+        self.vulcan_scope_runtime_stability_preserved = True
+        self.vulcan_scope_operational_continuity_preserved = True
+        self.vulcan_scope_execution_consistency_preserved = True
+        self.vulcan_scope_reporting_honest = True
+        self.vulcan_scope_controlled_modification_ready = False
+        self.vulcan_scope_execution_authorized = False
+        self.vulcan_scope_report_payload: dict = {}
+        self.vulcan_scope_enforcement_lifecycle: list[dict] = []
+        self.vulcan_scope_enforcement_duration_ms = 0
+        self.vulcan_scope_enforcement_reasons: list[str] = []
+        self.vulcan_scope_enforcement_last_error: str | None = None
+        self.vulcan_scope_enforcement_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -5255,6 +5290,101 @@ class RuntimeStatus:
         else:
             self.vulcan_prompt_protocol_errors += 1
 
+    def mark_vulcan_scope_enforcement_result(self, result: dict) -> None:
+        self.last_vulcan_scope_enforcement_at = datetime.now(timezone.utc)
+        self.vulcan_scope_enforcement_iteration += 1
+        self.vulcan_scope_enforcement_status = (
+            result.get("status") or "unknown"
+        )
+        self.vulcan_scope_enforcement_id = result.get("enforcement_id")
+        self.vulcan_scope_execution_id = result.get("execution_id")
+        self.vulcan_scope_technical_scope = result.get("technical_scope")
+        self.vulcan_scope_authorized_files = [
+            str(path) for path in (result.get("authorized_files") or [])
+        ]
+        self.vulcan_scope_proposed_files = [
+            str(path) for path in (result.get("proposed_files") or [])
+        ]
+        self.vulcan_scope_modified_files = [
+            str(path) for path in (result.get("modified_files") or [])
+        ]
+        self.vulcan_scope_protected_systems = [
+            str(system) for system in (result.get("protected_systems") or [])
+        ]
+        self.vulcan_scope_execution_limits = dict(
+            result.get("execution_limits") or {}
+        )
+        self.vulcan_scope_architecture_boundaries = dict(
+            result.get("architecture_boundaries") or {}
+        )
+        self.vulcan_scope_governance_restrictions = [
+            str(item)
+            for item in (result.get("governance_restrictions") or [])
+        ]
+        self.vulcan_scope_blocking_conditions = [
+            str(item) for item in (result.get("blocking_conditions") or [])
+        ]
+        self.vulcan_scope_compliant = bool(result.get("scope_compliant"))
+        self.vulcan_scope_files_authorized = bool(
+            result.get("files_authorized")
+        )
+        self.vulcan_scope_protected_systems_preserved = bool(
+            result.get("protected_systems_preserved")
+        )
+        self.vulcan_scope_execution_limits_preserved = bool(
+            result.get("execution_limits_preserved")
+        )
+        self.vulcan_scope_architecture_boundaries_preserved = bool(
+            result.get("architecture_boundaries_preserved")
+        )
+        self.vulcan_scope_governance_restrictions_respected = bool(
+            result.get("governance_restrictions_respected")
+        )
+        self.vulcan_scope_runtime_stability_preserved = bool(
+            result.get("runtime_stability_preserved")
+        )
+        self.vulcan_scope_operational_continuity_preserved = bool(
+            result.get("operational_continuity_preserved")
+        )
+        self.vulcan_scope_execution_consistency_preserved = bool(
+            result.get("execution_consistency_preserved")
+        )
+        self.vulcan_scope_reporting_honest = bool(
+            result.get("reporting_honest")
+        )
+        self.vulcan_scope_controlled_modification_ready = bool(
+            result.get("controlled_modification_ready")
+        )
+        self.vulcan_scope_execution_authorized = bool(
+            result.get("execution_authorized")
+        )
+        self.vulcan_scope_report_payload = dict(
+            result.get("report_payload") or {}
+        )
+        self.vulcan_scope_enforcement_lifecycle = [
+            dict(entry)
+            for entry in (result.get("enforcement_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.vulcan_scope_enforcement_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.vulcan_scope_enforcement_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.vulcan_scope_enforcement_last_error = result.get("error")
+        self.vulcan_scope_enforcement_metadata = dict(
+            result.get("metadata") or {}
+        )
+
+        if self.vulcan_scope_enforcement_status == "enforced":
+            self.vulcan_scope_enforcement_enforced += 1
+        elif self.vulcan_scope_enforcement_status == "blocked":
+            self.vulcan_scope_enforcement_blocked += 1
+        else:
+            self.vulcan_scope_enforcement_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -7962,6 +8092,84 @@ class RuntimeStatus:
             "metadata": dict(self.vulcan_prompt_protocol_metadata),
         }
 
+    def vulcan_scope_enforcement_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_vulcan_scope_enforcement_at": fmt(
+                self.last_vulcan_scope_enforcement_at
+            ),
+            "vulcan_scope_enforcement_iteration": (
+                self.vulcan_scope_enforcement_iteration
+            ),
+            "vulcan_scope_enforcement_status": (
+                self.vulcan_scope_enforcement_status
+            ),
+            "vulcan_scope_enforcement_enforced": (
+                self.vulcan_scope_enforcement_enforced
+            ),
+            "vulcan_scope_enforcement_blocked": (
+                self.vulcan_scope_enforcement_blocked
+            ),
+            "vulcan_scope_enforcement_errors": (
+                self.vulcan_scope_enforcement_errors
+            ),
+            "enforcement_id": self.vulcan_scope_enforcement_id,
+            "execution_id": self.vulcan_scope_execution_id,
+            "technical_scope": self.vulcan_scope_technical_scope,
+            "authorized_files": list(self.vulcan_scope_authorized_files),
+            "proposed_files": list(self.vulcan_scope_proposed_files),
+            "modified_files": list(self.vulcan_scope_modified_files),
+            "protected_systems": list(self.vulcan_scope_protected_systems),
+            "execution_limits": dict(self.vulcan_scope_execution_limits),
+            "architecture_boundaries": dict(
+                self.vulcan_scope_architecture_boundaries
+            ),
+            "governance_restrictions": list(
+                self.vulcan_scope_governance_restrictions
+            ),
+            "blocking_conditions": list(
+                self.vulcan_scope_blocking_conditions
+            ),
+            "scope_compliant": self.vulcan_scope_compliant,
+            "files_authorized": self.vulcan_scope_files_authorized,
+            "protected_systems_preserved": (
+                self.vulcan_scope_protected_systems_preserved
+            ),
+            "execution_limits_preserved": (
+                self.vulcan_scope_execution_limits_preserved
+            ),
+            "architecture_boundaries_preserved": (
+                self.vulcan_scope_architecture_boundaries_preserved
+            ),
+            "governance_restrictions_respected": (
+                self.vulcan_scope_governance_restrictions_respected
+            ),
+            "runtime_stability_preserved": (
+                self.vulcan_scope_runtime_stability_preserved
+            ),
+            "operational_continuity_preserved": (
+                self.vulcan_scope_operational_continuity_preserved
+            ),
+            "execution_consistency_preserved": (
+                self.vulcan_scope_execution_consistency_preserved
+            ),
+            "reporting_honest": self.vulcan_scope_reporting_honest,
+            "controlled_modification_ready": (
+                self.vulcan_scope_controlled_modification_ready
+            ),
+            "execution_authorized": self.vulcan_scope_execution_authorized,
+            "report_payload": dict(self.vulcan_scope_report_payload),
+            "enforcement_lifecycle": [
+                dict(entry) for entry in self.vulcan_scope_enforcement_lifecycle
+            ],
+            "duration_ms": self.vulcan_scope_enforcement_duration_ms,
+            "reasons": list(self.vulcan_scope_enforcement_reasons),
+            "last_error": self.vulcan_scope_enforcement_last_error,
+            "metadata": dict(self.vulcan_scope_enforcement_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -8182,6 +8390,9 @@ class RuntimeStatus:
                 self.operational_task_discovery_metrics()
             ),
             "vulcan_prompt_protocol": self.vulcan_prompt_protocol_metrics(),
+            "vulcan_scope_enforcement": (
+                self.vulcan_scope_enforcement_metrics()
+            ),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
             "response_safety": self.response_safety_metrics(),
