@@ -83,6 +83,9 @@ async def runtime_status(session: AsyncSession = Depends(get_session)):
         preference_adaptation_metrics = (
             runner_runtime_status.preference_adaptation_metrics()
         )
+        learning_safety_metrics = (
+            runner_runtime_status.learning_safety_metrics()
+        )
         response_ingestion_metrics = runner_runtime_status.response_ingestion_metrics()
         response_validation_metrics = runner_runtime_status.response_validation_metrics()
         response_safety_metrics = runner_runtime_status.response_safety_metrics()
@@ -133,6 +136,7 @@ async def runtime_status(session: AsyncSession = Depends(get_session)):
             "operational_memory": operational_memory_metrics,
             "workflow_learning": workflow_learning_metrics,
             "preference_adaptation": preference_adaptation_metrics,
+            "learning_safety": learning_safety_metrics,
             "response_ingestion": response_ingestion_metrics,
             "response_validation": response_validation_metrics,
             "response_safety": response_safety_metrics,

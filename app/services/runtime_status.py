@@ -1026,6 +1026,49 @@ class RuntimeStatus:
         self.preference_adaptation_reasons: list[str] = []
         self.preference_adaptation_last_error: str | None = None
         self.preference_adaptation_metadata: dict = {}
+        self.last_learning_safety_at: datetime | None = None
+        self.learning_safety_iteration = 0
+        self.learning_safety_status = "stopped"
+        self.learning_safety_safe = 0
+        self.learning_safety_warning = 0
+        self.learning_safety_blocked = 0
+        self.learning_safety_critical = 0
+        self.learning_safety_errors = 0
+        self.learning_safety_learning_id: str | None = None
+        self.learning_safety_type: str | None = None
+        self.learning_safety_risk_level: str | None = None
+        self.learning_safety_governance_status: str | None = None
+        self.learning_safety_security_status: str | None = None
+        self.learning_safety_validation_status: str | None = None
+        self.learning_safety_audit_status: str | None = None
+        self.learning_safety_application_status: str | None = None
+        self.learning_safety_decision: str | None = None
+        self.learning_safety_governance_compliant = False
+        self.learning_safety_audit_consistent = False
+        self.learning_safety_runtime_stable = False
+        self.learning_safety_security_safe = False
+        self.learning_safety_architecture_integrity = False
+        self.learning_safety_autonomy_limited = False
+        self.learning_safety_memory_safe = False
+        self.learning_safety_execution_safe = False
+        self.learning_safety_human_authority_preserved = False
+        self.learning_safety_sentinel_escalation_required = False
+        self.learning_safety_centinela_escalation_required = False
+        self.learning_safety_traceability_preserved = False
+        self.learning_safety_control: str | None = None
+        self.learning_safety_learning_candidate: dict = {}
+        self.learning_safety_adaptation_candidate: dict = {}
+        self.learning_safety_optimization_candidate: dict = {}
+        self.learning_safety_workflow_improvement: dict = {}
+        self.learning_safety_execution_adjustment: dict = {}
+        self.learning_safety_memory_records: list[dict] = []
+        self.learning_safety_detected_risks: list[str] = []
+        self.learning_safety_warnings: list[str] = []
+        self.learning_safety_lifecycle: list[dict] = []
+        self.learning_safety_duration_ms = 0
+        self.learning_safety_reasons: list[str] = []
+        self.learning_safety_last_error: str | None = None
+        self.learning_safety_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -3934,6 +3977,102 @@ class RuntimeStatus:
         else:
             self.preference_adaptation_errors += 1
 
+    def mark_learning_safety_result(self, result: dict) -> None:
+        self.last_learning_safety_at = datetime.now(timezone.utc)
+        self.learning_safety_iteration += 1
+        self.learning_safety_status = result.get("status") or "unknown"
+        self.learning_safety_learning_id = result.get("learning_id")
+        self.learning_safety_type = result.get("learning_type")
+        self.learning_safety_risk_level = result.get("risk_level")
+        self.learning_safety_governance_status = result.get("governance_status")
+        self.learning_safety_security_status = result.get("security_status")
+        self.learning_safety_validation_status = result.get("validation_status")
+        self.learning_safety_audit_status = result.get("audit_status")
+        self.learning_safety_application_status = result.get(
+            "application_status"
+        )
+        self.learning_safety_decision = result.get("safety_decision")
+        self.learning_safety_governance_compliant = bool(
+            result.get("governance_compliant")
+        )
+        self.learning_safety_audit_consistent = bool(
+            result.get("audit_consistent")
+        )
+        self.learning_safety_runtime_stable = bool(result.get("runtime_stable"))
+        self.learning_safety_security_safe = bool(result.get("security_safe"))
+        self.learning_safety_architecture_integrity = bool(
+            result.get("architecture_integrity")
+        )
+        self.learning_safety_autonomy_limited = bool(
+            result.get("autonomy_limited")
+        )
+        self.learning_safety_memory_safe = bool(result.get("memory_safe"))
+        self.learning_safety_execution_safe = bool(result.get("execution_safe"))
+        self.learning_safety_human_authority_preserved = bool(
+            result.get("human_authority_preserved")
+        )
+        self.learning_safety_sentinel_escalation_required = bool(
+            result.get("sentinel_escalation_required")
+        )
+        self.learning_safety_centinela_escalation_required = bool(
+            result.get("centinela_escalation_required")
+        )
+        self.learning_safety_traceability_preserved = bool(
+            result.get("traceability_preserved")
+        )
+        self.learning_safety_control = result.get("learning_control")
+        self.learning_safety_learning_candidate = dict(
+            result.get("learning_candidate") or {}
+        )
+        self.learning_safety_adaptation_candidate = dict(
+            result.get("adaptation_candidate") or {}
+        )
+        self.learning_safety_optimization_candidate = dict(
+            result.get("optimization_candidate") or {}
+        )
+        self.learning_safety_workflow_improvement = dict(
+            result.get("workflow_improvement") or {}
+        )
+        self.learning_safety_execution_adjustment = dict(
+            result.get("execution_adjustment") or {}
+        )
+        self.learning_safety_memory_records = [
+            dict(record)
+            for record in (result.get("memory_records") or [])
+            if isinstance(record, dict)
+        ]
+        self.learning_safety_detected_risks = [
+            str(item) for item in (result.get("detected_risks") or [])
+        ]
+        self.learning_safety_warnings = [
+            str(item) for item in (result.get("warnings") or [])
+        ]
+        self.learning_safety_lifecycle = [
+            dict(entry)
+            for entry in (result.get("safety_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.learning_safety_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.learning_safety_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.learning_safety_last_error = result.get("error")
+        self.learning_safety_metadata = dict(result.get("metadata") or {})
+
+        if self.learning_safety_status == "safe_learning":
+            self.learning_safety_safe += 1
+        elif self.learning_safety_status == "warning_learning":
+            self.learning_safety_warning += 1
+        elif self.learning_safety_status == "blocked_learning":
+            self.learning_safety_blocked += 1
+        elif self.learning_safety_status == "critical_learning":
+            self.learning_safety_critical += 1
+        else:
+            self.learning_safety_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -5876,6 +6015,83 @@ class RuntimeStatus:
             "metadata": dict(self.preference_adaptation_metadata),
         }
 
+    def learning_safety_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_learning_safety_at": fmt(self.last_learning_safety_at),
+            "learning_safety_iteration": self.learning_safety_iteration,
+            "learning_safety_status": self.learning_safety_status,
+            "learning_safety_safe": self.learning_safety_safe,
+            "learning_safety_warning": self.learning_safety_warning,
+            "learning_safety_blocked": self.learning_safety_blocked,
+            "learning_safety_critical": self.learning_safety_critical,
+            "learning_safety_errors": self.learning_safety_errors,
+            "learning_id": self.learning_safety_learning_id,
+            "learning_type": self.learning_safety_type,
+            "risk_level": self.learning_safety_risk_level,
+            "governance_status": self.learning_safety_governance_status,
+            "security_status": self.learning_safety_security_status,
+            "validation_status": self.learning_safety_validation_status,
+            "audit_status": self.learning_safety_audit_status,
+            "application_status": self.learning_safety_application_status,
+            "safety_decision": self.learning_safety_decision,
+            "governance_compliant": (
+                self.learning_safety_governance_compliant
+            ),
+            "audit_consistent": self.learning_safety_audit_consistent,
+            "runtime_stable": self.learning_safety_runtime_stable,
+            "security_safe": self.learning_safety_security_safe,
+            "architecture_integrity": (
+                self.learning_safety_architecture_integrity
+            ),
+            "autonomy_limited": self.learning_safety_autonomy_limited,
+            "memory_safe": self.learning_safety_memory_safe,
+            "execution_safe": self.learning_safety_execution_safe,
+            "human_authority_preserved": (
+                self.learning_safety_human_authority_preserved
+            ),
+            "sentinel_escalation_required": (
+                self.learning_safety_sentinel_escalation_required
+            ),
+            "centinela_escalation_required": (
+                self.learning_safety_centinela_escalation_required
+            ),
+            "traceability_preserved": (
+                self.learning_safety_traceability_preserved
+            ),
+            "learning_control": self.learning_safety_control,
+            "learning_candidate": dict(
+                self.learning_safety_learning_candidate
+            ),
+            "adaptation_candidate": dict(
+                self.learning_safety_adaptation_candidate
+            ),
+            "optimization_candidate": dict(
+                self.learning_safety_optimization_candidate
+            ),
+            "workflow_improvement": dict(
+                self.learning_safety_workflow_improvement
+            ),
+            "execution_adjustment": dict(
+                self.learning_safety_execution_adjustment
+            ),
+            "memory_records": [
+                dict(record)
+                for record in self.learning_safety_memory_records
+            ],
+            "detected_risks": list(self.learning_safety_detected_risks),
+            "warnings": list(self.learning_safety_warnings),
+            "safety_lifecycle": [
+                dict(entry) for entry in self.learning_safety_lifecycle
+            ],
+            "duration_ms": self.learning_safety_duration_ms,
+            "reasons": list(self.learning_safety_reasons),
+            "last_error": self.learning_safety_last_error,
+            "metadata": dict(self.learning_safety_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -6085,6 +6301,7 @@ class RuntimeStatus:
             "operational_memory": self.operational_memory_metrics(),
             "workflow_learning": self.workflow_learning_metrics(),
             "preference_adaptation": self.preference_adaptation_metrics(),
+            "learning_safety": self.learning_safety_metrics(),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
             "response_safety": self.response_safety_metrics(),
