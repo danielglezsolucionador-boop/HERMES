@@ -378,6 +378,36 @@ async def test_runtime_loop_initializes_response_validation_metrics():
 
 
 @pytest.mark.asyncio
+async def test_runtime_loop_initializes_response_safety_metrics():
+    async def two_discovered_tasks() -> TaskDiscoveryResult:
+        return TaskDiscoveryResult.from_count(2)
+
+    status = RuntimeStatus()
+    loop = RuntimeLoop(
+        status=status,
+        interval_seconds=0.01,
+        min_interval_seconds=0.01,
+        heartbeat_log_every=1000,
+        task_discovery=two_discovered_tasks,
+        response_safety_enabled=True,
+    )
+
+    task = asyncio.create_task(loop.run())
+    await asyncio.sleep(0.03)
+    response_safety = status.response_safety_metrics()
+    loop.request_stop("test_stop")
+    await asyncio.wait_for(task, timeout=1)
+
+    assert response_safety["response_safety_enabled"] is True
+    assert response_safety["response_safety_status"] == "active"
+    assert response_safety["safety_state"] == "ready"
+    assert response_safety["responses_safe"] == 0
+    assert response_safety["active_safety_checks"] == 0
+    assert response_safety["max_concurrent_safety_checks"] == 1
+    assert response_safety["runtime_protected"] is True
+
+
+@pytest.mark.asyncio
 async def test_runtime_loop_blocks_claiming_when_pickup_safety_blocks():
     async def two_discovered_tasks() -> TaskDiscoveryResult:
         return TaskDiscoveryResult.from_count(2)

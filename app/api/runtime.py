@@ -41,6 +41,7 @@ async def runtime_status(session: AsyncSession = Depends(get_session)):
         provider_bridge_metrics = runner_runtime_status.provider_bridge_metrics()
         response_ingestion_metrics = runner_runtime_status.response_ingestion_metrics()
         response_validation_metrics = runner_runtime_status.response_validation_metrics()
+        response_safety_metrics = runner_runtime_status.response_safety_metrics()
         safety_metrics = runner_runtime_status.safety_metrics()
         operational_health = await build_operational_health(session, counts)
 
@@ -68,6 +69,7 @@ async def runtime_status(session: AsyncSession = Depends(get_session)):
             "provider_bridge": provider_bridge_metrics,
             "response_ingestion": response_ingestion_metrics,
             "response_validation": response_validation_metrics,
+            "response_safety": response_safety_metrics,
             "safety": safety_metrics,
             "ai": ai_metrics,
             "telegram": telegram_metrics,

@@ -1,9 +1,9 @@
 """
-Controlled response validation layer for Hermes runtime.
+Controlled response safety layer for Hermes runtime.
 
-This layer performs deterministic payload and integrity checks on provider
-responses. It does not approve responses, perform semantic AI validation,
-retry work, correct content, call providers, or mutate database state.
+This layer performs deterministic operational safety checks before response
+validation/ingestion. It does not approve responses, retry work, call providers,
+correct content, self-heal, or make autonomous decisions.
 """
 from __future__ import annotations
 
@@ -15,11 +15,6 @@ from typing import Any
 from uuid import uuid4
 
 from app.core.config import settings
-from app.runner.response_safety import (
-    ResponseSafetyRequest,
-    ResponseSafetyResult,
-    ResponseSafetyRuntime,
-)
 from app.runner.task_execution import (
     EXECUTION_STATE_EXECUTING,
     ExecutionContext,
@@ -27,31 +22,47 @@ from app.runner.task_execution import (
 
 logger = logging.getLogger(__name__)
 
+POISONING_SIGNATURES = (
+    "ignore previous instructions",
+    "ignore all previous instructions",
+    "system prompt",
+    "developer message",
+    "self-modifying runtime",
+    "autonomous deploy",
+    "deploy execution",
+    "rm -rf",
+    "drop table",
+    "truncate table",
+    "delete from",
+)
+
 
 @dataclass(frozen=True)
-class ResponseValidationRequest:
+class ResponseSafetyRequest:
     response: Any
     execution: ExecutionContext | None = None
     provider_id: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    validation_duration_ms: int = 0
+    ingestion_duration_ms: int = 0
 
 
 @dataclass(frozen=True)
-class ResponseValidationContext:
-    validation_id: str
-    execution_id: str
-    task_id: str
-    runtime_id: str
-    execution_owner: str
-    provider_source: str
-    provider_request_id: str
+class ResponseSafetyContext:
+    safety_id: str
+    execution_id: str | None
+    task_id: str | None
+    runtime_id: str | None
+    execution_owner: str | None
+    provider_source: str | None
+    provider_request_id: str | None
     model: str | None
-    validated_at: str
+    checked_at: str
     payload_size_bytes: int
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "validation_id": self.validation_id,
+            "safety_id": self.safety_id,
             "execution_id": self.execution_id,
             "task_id": self.task_id,
             "runtime_id": self.runtime_id,
@@ -59,17 +70,26 @@ class ResponseValidationContext:
             "provider_source": self.provider_source,
             "provider_request_id": self.provider_request_id,
             "model": self.model,
-            "validated_at": self.validated_at,
+            "checked_at": self.checked_at,
             "payload_size_bytes": self.payload_size_bytes,
         }
 
 
 @dataclass(frozen=True)
-class ResponseValidationResult:
+class ResponseSafetyResult:
     status: str
     success: bool
-    validation_state: str
-    validation_id: str | None = None
+    safety_state: str
+    allows_response: bool
+    runtime_protected: bool = True
+    corrupted_detected: bool = False
+    poisoning_detected: bool = False
+    timeout_detected: bool = False
+    provider_failure_detected: bool = False
+    retry_allowed: bool = True
+    retry_attempts: int = 0
+    max_validation_retries: int = 0
+    safety_id: str | None = None
     execution_id: str | None = None
     task_id: str | None = None
     runtime_id: str | None = None
@@ -77,38 +97,38 @@ class ResponseValidationResult:
     provider_source: str | None = None
     provider_request_id: str | None = None
     model: str | None = None
-    validated_at: str | None = None
+    checked_at: str | None = None
     started_at: str | None = None
     finished_at: str | None = None
     duration_ms: int = 0
-    validation_duration_ms: int = 0
-    payload_size_bytes: int = 0
-    max_payload_inspection_bytes: int = 0
-    active_validations: int = 0
-    max_concurrent_validations: int = 0
-    max_validation_duration_ms: int = 0
-    safety_id: str | None = None
-    safety_status: str | None = None
-    safety_state: str | None = None
     safety_duration_ms: int = 0
-    safety_reasons: tuple[str, ...] = field(default_factory=tuple)
-    runtime_protected: bool = True
-    retry_allowed: bool = True
-    retry_attempts: int = 0
-    max_validation_retries: int = 0
-    runtime_validation_load: float | None = None
-    max_runtime_validation_load: float = 0.0
+    payload_size_bytes: int = 0
+    max_payload_bytes: int = 0
+    active_safety_checks: int = 0
+    max_concurrent_safety_checks: int = 0
+    max_safety_duration_ms: int = 0
+    runtime_safety_load: float | None = None
+    max_runtime_safety_load: float = 0.0
     metadata: dict[str, Any] = field(default_factory=dict)
     reasons: tuple[str, ...] = field(default_factory=tuple)
     error: str | None = None
-    context: ResponseValidationContext | None = None
+    context: ResponseSafetyContext | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "status": self.status,
             "success": self.success,
-            "validation_state": self.validation_state,
-            "validation_id": self.validation_id,
+            "safety_state": self.safety_state,
+            "allows_response": self.allows_response,
+            "runtime_protected": self.runtime_protected,
+            "corrupted_detected": self.corrupted_detected,
+            "poisoning_detected": self.poisoning_detected,
+            "timeout_detected": self.timeout_detected,
+            "provider_failure_detected": self.provider_failure_detected,
+            "retry_allowed": self.retry_allowed,
+            "retry_attempts": self.retry_attempts,
+            "max_validation_retries": self.max_validation_retries,
+            "safety_id": self.safety_id,
             "execution_id": self.execution_id,
             "task_id": self.task_id,
             "runtime_id": self.runtime_id,
@@ -116,27 +136,18 @@ class ResponseValidationResult:
             "provider_source": self.provider_source,
             "provider_request_id": self.provider_request_id,
             "model": self.model,
-            "validated_at": self.validated_at,
+            "checked_at": self.checked_at,
             "started_at": self.started_at,
             "finished_at": self.finished_at,
             "duration_ms": self.duration_ms,
-            "validation_duration_ms": self.validation_duration_ms,
-            "payload_size_bytes": self.payload_size_bytes,
-            "max_payload_inspection_bytes": self.max_payload_inspection_bytes,
-            "active_validations": self.active_validations,
-            "max_concurrent_validations": self.max_concurrent_validations,
-            "max_validation_duration_ms": self.max_validation_duration_ms,
-            "safety_id": self.safety_id,
-            "safety_status": self.safety_status,
-            "safety_state": self.safety_state,
             "safety_duration_ms": self.safety_duration_ms,
-            "safety_reasons": list(self.safety_reasons),
-            "runtime_protected": self.runtime_protected,
-            "retry_allowed": self.retry_allowed,
-            "retry_attempts": self.retry_attempts,
-            "max_validation_retries": self.max_validation_retries,
-            "runtime_validation_load": self.runtime_validation_load,
-            "max_runtime_validation_load": self.max_runtime_validation_load,
+            "payload_size_bytes": self.payload_size_bytes,
+            "max_payload_bytes": self.max_payload_bytes,
+            "active_safety_checks": self.active_safety_checks,
+            "max_concurrent_safety_checks": self.max_concurrent_safety_checks,
+            "max_safety_duration_ms": self.max_safety_duration_ms,
+            "runtime_safety_load": self.runtime_safety_load,
+            "max_runtime_safety_load": self.max_runtime_safety_load,
             "metadata": dict(self.metadata),
             "reasons": list(self.reasons),
             "error": self.error,
@@ -144,103 +155,66 @@ class ResponseValidationResult:
         }
 
 
-class ResponseValidationRuntime:
+class ResponseSafetyRuntime:
     def __init__(
         self,
-        max_payload_inspection_bytes: int = (
-            settings.RESPONSE_VALIDATION_MAX_PAYLOAD_BYTES
+        max_payload_bytes: int = settings.RESPONSE_SAFETY_MAX_PAYLOAD_BYTES,
+        max_safety_duration_ms: int = settings.RESPONSE_SAFETY_MAX_DURATION_MS,
+        max_concurrent_safety_checks: int = (
+            settings.RESPONSE_SAFETY_MAX_CONCURRENT_CHECKS
         ),
-        max_validation_duration_ms: int = (
-            settings.RESPONSE_VALIDATION_MAX_DURATION_MS
+        max_runtime_safety_load: float = settings.RESPONSE_SAFETY_MAX_RUNTIME_LOAD,
+        max_validation_retries: int = (
+            settings.RESPONSE_SAFETY_MAX_VALIDATION_RETRIES
         ),
-        max_concurrent_validations: int = (
-            settings.RESPONSE_VALIDATION_MAX_CONCURRENT_VALIDATIONS
-        ),
-        max_runtime_validation_load: float = (
-            settings.RESPONSE_VALIDATION_MAX_RUNTIME_LOAD
-        ),
-        safety_enabled: bool = settings.RESPONSE_SAFETY_ENABLED,
-        response_safety: ResponseSafetyRuntime | None = None,
     ) -> None:
-        self.max_payload_inspection_bytes = max(
+        self.max_payload_bytes = max(1, int(max_payload_bytes or 1))
+        self.max_safety_duration_ms = max(1, int(max_safety_duration_ms or 1))
+        self.max_concurrent_safety_checks = max(
             1,
-            int(max_payload_inspection_bytes or 1),
+            int(max_concurrent_safety_checks or 1),
         )
-        self.max_validation_duration_ms = max(
-            1,
-            int(max_validation_duration_ms or 1),
-        )
-        self.max_concurrent_validations = max(
-            1,
-            int(max_concurrent_validations or 1),
-        )
-        self.max_runtime_validation_load = max(
+        self.max_runtime_safety_load = max(
             0.0,
-            float(max_runtime_validation_load or 0.0),
+            float(max_runtime_safety_load or 0.0),
         )
-        self.safety_enabled = bool(safety_enabled)
-        self.response_safety = response_safety or ResponseSafetyRuntime()
-        self._active_validations = 0
+        self.max_validation_retries = max(0, int(max_validation_retries or 0))
+        self._active_safety_checks = 0
 
-    def validate(
+    def assess(
         self,
-        request: ResponseValidationRequest,
+        request: ResponseSafetyRequest,
         runtime_active: bool = True,
-        validation_permitted: bool = True,
-    ) -> ResponseValidationResult:
+        safety_permitted: bool = True,
+    ) -> ResponseSafetyResult:
         started = time.perf_counter()
         started_at = datetime.now(timezone.utc)
-        context: ResponseValidationContext | None = None
-        safety_result: ResponseSafetyResult | None = None
+        context: ResponseSafetyContext | None = None
 
         try:
             response = self._as_dict(request.response)
             content = self._content(request.response, response)
-            if self.safety_enabled:
-                safety_result = self.response_safety.assess(
-                    ResponseSafetyRequest(
-                        response=request.response,
-                        execution=request.execution,
-                        provider_id=request.provider_id,
-                        metadata=request.metadata,
-                    ),
-                    runtime_active=runtime_active,
-                    safety_permitted=validation_permitted,
-                )
-                if not safety_result.allows_response:
-                    result = self._result(
-                        "rejected",
-                        False,
-                        "safety_blocked",
-                        request=request,
-                        response=response,
-                        content=content,
-                        safety_result=safety_result,
-                        reasons=list(safety_result.reasons),
-                        error=safety_result.error,
-                        started=started,
-                        started_at=started_at,
-                    )
-                    self._log_result(result)
-                    return result
-            reasons = self._validation_reasons(
+            retry_attempts = self._retry_attempts(request)
+            reasons = self._safety_reasons(
                 request=request,
                 response=response,
                 content=content,
+                retry_attempts=retry_attempts,
                 runtime_active=runtime_active,
-                validation_permitted=validation_permitted,
+                safety_permitted=safety_permitted,
             )
             reasons.extend(self._duration_reasons(started))
             reasons = self._unique(reasons)
             if reasons:
                 result = self._result(
-                    "rejected",
+                    "blocked",
                     False,
-                    "rejected",
+                    "blocked",
+                    False,
                     request=request,
                     response=response,
                     content=content,
-                    safety_result=safety_result,
+                    retry_attempts=retry_attempts,
                     reasons=reasons,
                     started=started,
                     started_at=started_at,
@@ -248,36 +222,40 @@ class ResponseValidationRuntime:
                 self._log_result(result)
                 return result
 
-            self._active_validations += 1
+            self._active_safety_checks += 1
             try:
                 context = self._build_context(request, response, content)
             finally:
-                self._active_validations = max(0, self._active_validations - 1)
+                self._active_safety_checks = max(
+                    0,
+                    self._active_safety_checks - 1,
+                )
 
             result = self._result(
-                "validated",
+                "safe",
                 True,
-                "accepted",
+                "safe",
+                True,
                 request=request,
                 response=response,
                 content=content,
                 context=context,
-                safety_result=safety_result,
+                retry_attempts=retry_attempts,
                 started=started,
                 started_at=started_at,
             )
             self._log_result(result)
             return result
         except Exception as exc:
-            self._active_validations = max(0, self._active_validations - 1)
+            self._active_safety_checks = max(0, self._active_safety_checks - 1)
             result = self._result(
                 "error",
                 False,
                 "error",
+                False,
                 request=request,
                 context=context,
-                safety_result=safety_result,
-                reasons=["response_validation_error_contained"],
+                reasons=["response_safety_error_contained"],
                 error=str(exc),
                 started=started,
                 started_at=started_at,
@@ -287,62 +265,69 @@ class ResponseValidationRuntime:
 
     def visibility(self) -> dict[str, Any]:
         return {
-            "active_validations": self._active_validations,
-            "max_concurrent_validations": self.max_concurrent_validations,
-            "max_payload_inspection_bytes": self.max_payload_inspection_bytes,
-            "max_validation_duration_ms": self.max_validation_duration_ms,
-            "runtime_validation_load": self._runtime_validation_load(),
-            "max_runtime_validation_load": self.max_runtime_validation_load,
+            "active_safety_checks": self._active_safety_checks,
+            "max_concurrent_safety_checks": self.max_concurrent_safety_checks,
+            "max_payload_bytes": self.max_payload_bytes,
+            "max_safety_duration_ms": self.max_safety_duration_ms,
+            "runtime_safety_load": self._runtime_safety_load(),
+            "max_runtime_safety_load": self.max_runtime_safety_load,
+            "max_validation_retries": self.max_validation_retries,
         }
 
-    def _validation_reasons(
+    def _safety_reasons(
         self,
-        request: ResponseValidationRequest,
+        request: ResponseSafetyRequest,
         response: dict[str, Any],
         content: str | None,
+        retry_attempts: int,
         runtime_active: bool,
-        validation_permitted: bool,
+        safety_permitted: bool,
     ) -> list[str]:
         reasons: list[str] = []
         if not runtime_active:
             reasons.append("runtime_inactive")
-        if not validation_permitted:
-            reasons.append("validation_not_permitted")
-        if not response:
-            reasons.append("missing_provider_response")
-        if self._active_validations >= self.max_concurrent_validations:
-            reasons.append("max_concurrent_validations_reached")
-        runtime_load = self._runtime_validation_load()
+        if not safety_permitted:
+            reasons.append("response_safety_not_permitted")
+        if self._active_safety_checks >= self.max_concurrent_safety_checks:
+            reasons.append("max_concurrent_response_safety_checks_reached")
+        runtime_load = self._runtime_safety_load()
         if (
             runtime_load is not None
-            and self.max_runtime_validation_load > 0
-            and runtime_load > self.max_runtime_validation_load
+            and self.max_runtime_safety_load > 0
+            and runtime_load > self.max_runtime_safety_load
         ):
-            reasons.append("max_runtime_validation_load_reached")
+            reasons.append("max_response_safety_runtime_load_reached")
+        if retry_attempts > self.max_validation_retries:
+            reasons.append("max_validation_retries_reached")
 
-        if response:
-            reasons.extend(self._payload_reasons(request, response, content))
-            reasons.extend(self._integrity_reasons(request, response))
-
-        reasons.extend(self._execution_reasons(request, response))
+        reasons.extend(self._corruption_reasons(request, response, content))
+        reasons.extend(self._poisoning_reasons(content))
+        reasons.extend(self._timeout_reasons(request))
+        reasons.extend(self._provider_failure_reasons(response, content))
         return self._unique(reasons)
 
-    def _payload_reasons(
+    def _corruption_reasons(
         self,
-        request: ResponseValidationRequest,
+        request: ResponseSafetyRequest,
         response: dict[str, Any],
         content: str | None,
     ) -> list[str]:
         reasons: list[str] = []
-        if response.get("status") != "completed" or not response.get("success"):
-            reasons.append("provider_response_not_completed")
-        if not self._provider_source(request, response):
-            reasons.append("missing_provider_source")
+        if not response:
+            reasons.append("missing_provider_response")
         if not content or not content.strip():
             reasons.append("empty_response_content")
-        elif len(content.encode("utf-8")) > self.max_payload_inspection_bytes:
-            reasons.append("max_payload_inspection_exceeded")
+        else:
+            payload_size = len(content.encode("utf-8"))
+            if payload_size > self.max_payload_bytes:
+                reasons.append("max_response_safety_payload_exceeded")
+            if "\x00" in content:
+                reasons.append("payload_contains_null_byte")
+            if self._control_character_ratio(content) > 0.05:
+                reasons.append("payload_control_character_ratio_exceeded")
+
         if not isinstance(request.metadata, dict):
+            reasons.append("invalid_response_safety_metadata")
             reasons.append("invalid_validation_metadata")
         usage = response.get("usage")
         if usage is not None and not isinstance(usage, dict):
@@ -356,43 +341,50 @@ class ResponseValidationRuntime:
             (list, tuple),
         ):
             reasons.append("invalid_response_reasons")
+
+        reasons.extend(self._execution_reasons(request, response))
         return reasons
 
-    def _integrity_reasons(
+    def _poisoning_reasons(self, content: str | None) -> list[str]:
+        if not content:
+            return []
+        lower_content = content.lower()
+        if any(signature in lower_content for signature in POISONING_SIGNATURES):
+            return ["runtime_poisoning_signature_detected"]
+        return []
+
+    def _timeout_reasons(self, request: ResponseSafetyRequest) -> list[str]:
+        reasons: list[str] = []
+        validation_duration_ms = max(0, int(request.validation_duration_ms or 0))
+        ingestion_duration_ms = max(0, int(request.ingestion_duration_ms or 0))
+        if validation_duration_ms > settings.RESPONSE_VALIDATION_MAX_DURATION_MS:
+            reasons.append("response_validation_timeout_detected")
+        if ingestion_duration_ms > settings.RESPONSE_INGESTION_MAX_DURATION_MS:
+            reasons.append("response_ingestion_timeout_detected")
+        return reasons
+
+    def _provider_failure_reasons(
         self,
-        request: ResponseValidationRequest,
         response: dict[str, Any],
+        content: str | None,
     ) -> list[str]:
         reasons: list[str] = []
-        provider_request_id = self._provider_request_id(response)
-        if not provider_request_id:
+        if not response:
+            return reasons
+        if response.get("status") != "completed" or not response.get("success"):
+            reasons.append("provider_response_failure_detected")
+            reasons.append("provider_response_not_completed")
+        if not self._response_provider_source(response):
+            reasons.append("missing_provider_source")
+        if not self._provider_request_id(response):
             reasons.append("missing_provider_request_id")
-
-        started_at = response.get("started_at")
-        finished_at = response.get("finished_at")
-        if not started_at or not finished_at:
-            reasons.append("missing_response_timestamps")
-        started_dt = self._parse_timestamp(started_at)
-        finished_dt = self._parse_timestamp(finished_at)
-        if started_at and started_dt is None:
-            reasons.append("invalid_started_at")
-        if finished_at and finished_dt is None:
-            reasons.append("invalid_finished_at")
-        if started_dt and finished_dt and finished_dt < started_dt:
-            reasons.append("response_timestamp_order_invalid")
-
-        context_built_at = self._context(response).get("built_at")
-        if context_built_at and self._parse_timestamp(context_built_at) is None:
-            reasons.append("invalid_context_timestamp")
-
-        response_provider = self._response_provider_source(response)
-        if request.provider_id and response_provider and request.provider_id != response_provider:
-            reasons.append("provider_source_mismatch")
+        if not content or not content.strip():
+            reasons.append("malformed_provider_output")
         return reasons
 
     def _execution_reasons(
         self,
-        request: ResponseValidationRequest,
+        request: ResponseSafetyRequest,
         response: dict[str, Any],
     ) -> list[str]:
         reasons: list[str] = []
@@ -432,16 +424,16 @@ class ResponseValidationRuntime:
         return reasons
 
     def _duration_reasons(self, started: float) -> list[str]:
-        if self._duration_ms(started) > self.max_validation_duration_ms:
-            return ["max_validation_duration_reached"]
+        if self._duration_ms(started) > self.max_safety_duration_ms:
+            return ["response_safety_timeout_detected"]
         return []
 
     def _build_context(
         self,
-        request: ResponseValidationRequest,
+        request: ResponseSafetyRequest,
         response: dict[str, Any],
         content: str | None,
-    ) -> ResponseValidationContext:
+    ) -> ResponseSafetyContext:
         execution = request.execution
         execution_id = execution.execution_id if execution else self._execution_id(response)
         task_id = execution.task_id if execution else self._task_id(response)
@@ -449,16 +441,16 @@ class ResponseValidationRuntime:
         execution_owner = (
             execution.runtime_owner if execution else self._execution_owner(response)
         )
-        return ResponseValidationContext(
-            validation_id=str(uuid4()),
-            execution_id=str(execution_id),
-            task_id=str(task_id),
-            runtime_id=str(runtime_id),
-            execution_owner=str(execution_owner),
-            provider_source=str(self._provider_source(request, response)),
-            provider_request_id=str(self._provider_request_id(response)),
+        return ResponseSafetyContext(
+            safety_id=str(uuid4()),
+            execution_id=execution_id,
+            task_id=task_id,
+            runtime_id=runtime_id,
+            execution_owner=execution_owner,
+            provider_source=self._provider_source(request, response),
+            provider_request_id=self._provider_request_id(response),
             model=response.get("model"),
-            validated_at=datetime.now(timezone.utc).isoformat(),
+            checked_at=datetime.now(timezone.utc).isoformat(),
             payload_size_bytes=len((content or "").encode("utf-8")),
         )
 
@@ -466,22 +458,23 @@ class ResponseValidationRuntime:
         self,
         status: str,
         success: bool,
-        validation_state: str,
-        request: ResponseValidationRequest | None = None,
+        safety_state: str,
+        allows_response: bool,
+        request: ResponseSafetyRequest | None = None,
         response: dict[str, Any] | None = None,
         content: str | None = None,
-        context: ResponseValidationContext | None = None,
-        safety_result: ResponseSafetyResult | None = None,
+        context: ResponseSafetyContext | None = None,
+        retry_attempts: int = 0,
         reasons: list[str] | None = None,
         error: str | None = None,
         started: float | None = None,
         started_at: datetime | None = None,
-    ) -> ResponseValidationResult:
+    ) -> ResponseSafetyResult:
         response = response or {}
+        reasons = reasons or []
         duration_ms = self._duration_ms(started) if started else 0
         finished_at = datetime.now(timezone.utc)
         execution = request.execution if request else None
-        payload_size = len((content or "").encode("utf-8"))
         execution_id = (
             context.execution_id
             if context
@@ -506,11 +499,24 @@ class ResponseValidationRuntime:
                 else self._execution_owner(response)
             )
         )
-        return ResponseValidationResult(
+        payload_size = len((content or "").encode("utf-8"))
+        return ResponseSafetyResult(
             status=status,
             success=success,
-            validation_state=validation_state,
-            validation_id=context.validation_id if context else None,
+            safety_state=safety_state,
+            allows_response=allows_response,
+            runtime_protected=True,
+            corrupted_detected=self._has_any_corruption_reason(reasons),
+            poisoning_detected="runtime_poisoning_signature_detected" in reasons,
+            timeout_detected=self._has_any_timeout_reason(reasons),
+            provider_failure_detected=(
+                "provider_response_failure_detected" in reasons
+                or "malformed_provider_output" in reasons
+            ),
+            retry_allowed=retry_attempts < self.max_validation_retries,
+            retry_attempts=retry_attempts,
+            max_validation_retries=self.max_validation_retries,
+            safety_id=context.safety_id if context else None,
             execution_id=execution_id,
             task_id=task_id,
             runtime_id=runtime_id,
@@ -526,44 +532,69 @@ class ResponseValidationRuntime:
                 else self._provider_request_id(response)
             ),
             model=context.model if context else response.get("model"),
-            validated_at=context.validated_at if context else None,
+            checked_at=context.checked_at if context else None,
             started_at=started_at.isoformat() if started_at else None,
             finished_at=finished_at.isoformat(),
             duration_ms=duration_ms,
-            validation_duration_ms=duration_ms,
+            safety_duration_ms=duration_ms,
             payload_size_bytes=payload_size,
-            max_payload_inspection_bytes=self.max_payload_inspection_bytes,
-            active_validations=self._active_validations,
-            max_concurrent_validations=self.max_concurrent_validations,
-            max_validation_duration_ms=self.max_validation_duration_ms,
-            safety_id=safety_result.safety_id if safety_result else None,
-            safety_status=safety_result.status if safety_result else None,
-            safety_state=safety_result.safety_state if safety_result else None,
-            safety_duration_ms=(
-                safety_result.safety_duration_ms if safety_result else 0
-            ),
-            safety_reasons=(
-                tuple(safety_result.reasons) if safety_result else tuple()
-            ),
-            runtime_protected=(
-                safety_result.runtime_protected if safety_result else True
-            ),
-            retry_allowed=safety_result.retry_allowed if safety_result else True,
-            retry_attempts=safety_result.retry_attempts if safety_result else 0,
-            max_validation_retries=(
-                safety_result.max_validation_retries if safety_result else 0
-            ),
-            runtime_validation_load=self._runtime_validation_load(),
-            max_runtime_validation_load=self.max_runtime_validation_load,
+            max_payload_bytes=self.max_payload_bytes,
+            active_safety_checks=self._active_safety_checks,
+            max_concurrent_safety_checks=self.max_concurrent_safety_checks,
+            max_safety_duration_ms=self.max_safety_duration_ms,
+            runtime_safety_load=self._runtime_safety_load(),
+            max_runtime_safety_load=self.max_runtime_safety_load,
             metadata=self._metadata(request),
-            reasons=tuple(reasons or []),
+            reasons=tuple(reasons),
             error=error,
             context=context,
         )
 
+    def _has_any_corruption_reason(self, reasons: list[str]) -> bool:
+        return any(
+            reason
+            in {
+                "missing_provider_response",
+                "empty_response_content",
+                "max_response_safety_payload_exceeded",
+                "payload_contains_null_byte",
+                "payload_control_character_ratio_exceeded",
+                "invalid_response_safety_metadata",
+                "invalid_response_metadata",
+                "invalid_response_context",
+                "invalid_response_reasons",
+                "missing_execution_id",
+                "missing_task_id",
+                "missing_runtime_id",
+                "missing_execution_owner",
+                "execution_id_mismatch",
+                "task_id_mismatch",
+                "runtime_id_mismatch",
+                "execution_owner_mismatch",
+            }
+            for reason in reasons
+        )
+
+    def _has_any_timeout_reason(self, reasons: list[str]) -> bool:
+        return any("timeout" in reason for reason in reasons)
+
+    def _retry_attempts(self, request: ResponseSafetyRequest) -> int:
+        if not isinstance(request.metadata, dict):
+            return 0
+        raw_attempts = (
+            request.metadata.get("validation_attempts")
+            or request.metadata.get("validation_retry_count")
+            or request.metadata.get("response_validation_attempts")
+            or 0
+        )
+        try:
+            return max(0, int(raw_attempts or 0))
+        except (TypeError, ValueError):
+            return 0
+
     def _metadata(
         self,
-        request: ResponseValidationRequest | None,
+        request: ResponseSafetyRequest | None,
     ) -> dict[str, Any]:
         if request is None or not isinstance(request.metadata, dict):
             return {}
@@ -616,7 +647,7 @@ class ResponseValidationRuntime:
 
     def _provider_source(
         self,
-        request: ResponseValidationRequest | None,
+        request: ResponseSafetyRequest | None,
         response: dict[str, Any],
     ) -> str | None:
         if request and request.provider_id:
@@ -630,21 +661,23 @@ class ResponseValidationRuntime:
             or self._context(response).get("request_id")
         )
 
-    def _parse_timestamp(self, value: Any) -> datetime | None:
-        if not isinstance(value, str) or not value.strip():
-            return None
-        try:
-            return datetime.fromisoformat(value.replace("Z", "+00:00"))
-        except ValueError:
-            return None
+    def _control_character_ratio(self, content: str) -> float:
+        if not content:
+            return 0.0
+        controls = sum(
+            1
+            for char in content
+            if ord(char) < 32 and char not in {"\n", "\r", "\t"}
+        )
+        return controls / len(content)
 
     def _duration_ms(self, started: float | None) -> int:
         return int((time.perf_counter() - started) * 1000) if started else 0
 
-    def _runtime_validation_load(self) -> float | None:
-        if self.max_concurrent_validations <= 0:
+    def _runtime_safety_load(self) -> float | None:
+        if self.max_concurrent_safety_checks <= 0:
             return None
-        return round(self._active_validations / self.max_concurrent_validations, 4)
+        return round(self._active_safety_checks / self.max_concurrent_safety_checks, 4)
 
     def _unique(self, reasons: list[str]) -> list[str]:
         seen: set[str] = set()
@@ -655,26 +688,26 @@ class ResponseValidationRuntime:
                 unique.append(reason)
         return unique
 
-    def _log_result(self, result: ResponseValidationResult) -> None:
-        if result.status == "validated":
+    def _log_result(self, result: ResponseSafetyResult) -> None:
+        if result.status == "safe":
             logger.info(
-                "response_validation: validated validation_id=%s execution_id=%s provider=%s duration_ms=%s",
-                result.validation_id,
+                "response_safety: safe safety_id=%s execution_id=%s provider=%s duration_ms=%s",
+                result.safety_id,
                 result.execution_id,
                 result.provider_source,
-                result.validation_duration_ms,
+                result.safety_duration_ms,
             )
             return
         if result.status == "error":
             logger.error(
-                "response_validation: error execution_id=%s reasons=%s error=%s",
+                "response_safety: error execution_id=%s reasons=%s error=%s",
                 result.execution_id,
                 ",".join(result.reasons),
                 result.error,
             )
             return
         logger.warning(
-            "response_validation: rejected execution_id=%s reasons=%s",
+            "response_safety: blocked execution_id=%s reasons=%s",
             result.execution_id,
             ",".join(result.reasons),
         )

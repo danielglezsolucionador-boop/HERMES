@@ -3,7 +3,7 @@ Runtime loop foundation for Hermes.
 
 This loop maintains runtime heartbeat and lifecycle state. Task claiming is
 controlled and disabled by default. It never executes or retries tasks.
-Execution, provider bridge, response ingestion, and response validation
+Execution, provider bridge, response ingestion, response validation, and response safety
 foundations are initialized for observability but do not run autonomous work.
 """
 import asyncio
@@ -19,6 +19,7 @@ from app.models.task import Task
 from app.runner.pickup_safety import PickupSafety, PickupSafetyResult
 from app.runner.execution_safety import ExecutionSafety, ExecutionSafetyResult
 from app.runner.response_ingestion import ResponseIngestionRuntime
+from app.runner.response_safety import ResponseSafetyRuntime
 from app.runner.response_validation import ResponseValidationRuntime
 from app.runner.task_claiming import TaskClaiming, TaskClaimingResult
 from app.runner.task_discovery import TaskDiscovery, TaskDiscoveryResult
@@ -51,6 +52,7 @@ class RuntimeLoop:
         provider_bridge_enabled: bool = settings.PROVIDER_BRIDGE_ENABLED,
         response_ingestion_enabled: bool = settings.RESPONSE_INGESTION_ENABLED,
         response_validation_enabled: bool = settings.RESPONSE_VALIDATION_ENABLED,
+        response_safety_enabled: bool = settings.RESPONSE_SAFETY_ENABLED,
         degraded_error_threshold: int = settings.RUNTIME_LOOP_DEGRADED_ERROR_THRESHOLD,
         max_consecutive_errors: int = settings.RUNTIME_LOOP_MAX_CONSECUTIVE_ERRORS,
         safety_event_limit: int = settings.RUNTIME_LOOP_SAFETY_EVENT_LIMIT,
@@ -83,6 +85,8 @@ class RuntimeLoop:
         self.response_ingestion = ResponseIngestionRuntime()
         self.response_validation_enabled = bool(response_validation_enabled)
         self.response_validation = ResponseValidationRuntime()
+        self.response_safety_enabled = bool(response_safety_enabled)
+        self.response_safety = ResponseSafetyRuntime()
         self.degraded_error_threshold = max(1, int(degraded_error_threshold))
         self.max_consecutive_errors = max(
             self.degraded_error_threshold,
@@ -255,6 +259,19 @@ class RuntimeLoop:
                 settings.RESPONSE_VALIDATION_MAX_RUNTIME_LOAD
             ),
         )
+        self.status.mark_response_safety_started(
+            enabled=self.response_safety_enabled,
+            interval_seconds=self.interval_seconds,
+            max_concurrent_safety_checks=(
+                settings.RESPONSE_SAFETY_MAX_CONCURRENT_CHECKS
+            ),
+            max_payload_bytes=settings.RESPONSE_SAFETY_MAX_PAYLOAD_BYTES,
+            max_safety_duration_ms=settings.RESPONSE_SAFETY_MAX_DURATION_MS,
+            max_runtime_safety_load=settings.RESPONSE_SAFETY_MAX_RUNTIME_LOAD,
+            max_validation_retries=(
+                settings.RESPONSE_SAFETY_MAX_VALIDATION_RETRIES
+            ),
+        )
         logger.info(
             "runtime_loop: started interval_seconds=%s",
             self.interval_seconds,
@@ -288,6 +305,10 @@ class RuntimeLoop:
         logger.info(
             "runtime_loop: response validation %s",
             "enabled" if self.response_validation_enabled else "disabled",
+        )
+        logger.info(
+            "runtime_loop: response safety %s",
+            "enabled" if self.response_safety_enabled else "disabled",
         )
 
         stop_reason = "stopped"
@@ -327,6 +348,11 @@ class RuntimeLoop:
                         )
                     if self.response_validation_enabled:
                         self.status.mark_response_validation_error(
+                            str(exc),
+                            poll_duration_ms,
+                        )
+                    if self.response_safety_enabled:
+                        self.status.mark_response_safety_error(
                             str(exc),
                             poll_duration_ms,
                         )
