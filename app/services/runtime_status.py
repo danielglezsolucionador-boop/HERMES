@@ -1645,6 +1645,38 @@ class RuntimeStatus:
         self.sentinel_audit_reporting_reasons: list[str] = []
         self.sentinel_audit_reporting_last_error: str | None = None
         self.sentinel_audit_reporting_metadata: dict = {}
+        self.last_knowledge_core_reader_at: datetime | None = None
+        self.knowledge_core_reader_iteration = 0
+        self.knowledge_core_reader_status = "stopped"
+        self.knowledge_core_reader_loaded = 0
+        self.knowledge_core_reader_blocked = 0
+        self.knowledge_core_reader_errors = 0
+        self.knowledge_core_read_id: str | None = None
+        self.knowledge_core_source_roots: list[str] = []
+        self.knowledge_core_sources: list[dict] = []
+        self.knowledge_core_components_found: dict = {}
+        self.knowledge_core_documents_read = 0
+        self.knowledge_core_total_bytes_read = 0
+        self.knowledge_core_execution_context: dict = {}
+        self.knowledge_core_roadmap_context: dict = {}
+        self.knowledge_core_dependency_context: dict = {}
+        self.knowledge_core_governance_context: dict = {}
+        self.knowledge_source_legitimacy_valid = False
+        self.knowledge_roadmap_consistency_valid = False
+        self.knowledge_standards_compatible = False
+        self.knowledge_dependency_integrity_valid = False
+        self.knowledge_governance_alignment_valid = False
+        self.knowledge_context_continuity_preserved = False
+        self.knowledge_architecture_consistency_preserved = False
+        self.knowledge_ecosystem_coherence_preserved = False
+        self.knowledge_operational_traceability_preserved = False
+        self.knowledge_read_only_preserved = False
+        self.knowledge_human_visibility_payload: dict = {}
+        self.knowledge_core_reader_lifecycle: list[dict] = []
+        self.knowledge_core_reader_duration_ms = 0
+        self.knowledge_core_reader_reasons: list[str] = []
+        self.knowledge_core_reader_last_error: str | None = None
+        self.knowledge_core_reader_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -6100,6 +6132,99 @@ class RuntimeStatus:
         else:
             self.sentinel_audit_reporting_errors += 1
 
+    def mark_knowledge_core_reader_result(self, result: dict) -> None:
+        self.last_knowledge_core_reader_at = datetime.now(timezone.utc)
+        self.knowledge_core_reader_iteration += 1
+        self.knowledge_core_reader_status = result.get("status") or "unknown"
+        self.knowledge_core_read_id = result.get("read_id")
+        self.knowledge_core_source_roots = [
+            str(item) for item in (result.get("source_roots") or [])
+        ]
+        self.knowledge_core_sources = [
+            dict(item)
+            for item in (result.get("knowledge_sources") or [])
+            if isinstance(item, dict)
+        ]
+        self.knowledge_core_components_found = dict(
+            result.get("components_found") or {}
+        )
+        self.knowledge_core_documents_read = max(
+            0,
+            int(result.get("documents_read") or 0),
+        )
+        self.knowledge_core_total_bytes_read = max(
+            0,
+            int(result.get("total_bytes_read") or 0),
+        )
+        self.knowledge_core_execution_context = dict(
+            result.get("execution_context") or {}
+        )
+        self.knowledge_core_roadmap_context = dict(
+            result.get("roadmap_context") or {}
+        )
+        self.knowledge_core_dependency_context = dict(
+            result.get("dependency_context") or {}
+        )
+        self.knowledge_core_governance_context = dict(
+            result.get("governance_context") or {}
+        )
+        self.knowledge_source_legitimacy_valid = bool(
+            result.get("source_legitimacy_valid")
+        )
+        self.knowledge_roadmap_consistency_valid = bool(
+            result.get("roadmap_consistency_valid")
+        )
+        self.knowledge_standards_compatible = bool(
+            result.get("standards_compatible")
+        )
+        self.knowledge_dependency_integrity_valid = bool(
+            result.get("dependency_integrity_valid")
+        )
+        self.knowledge_governance_alignment_valid = bool(
+            result.get("governance_alignment_valid")
+        )
+        self.knowledge_context_continuity_preserved = bool(
+            result.get("context_continuity_preserved")
+        )
+        self.knowledge_architecture_consistency_preserved = bool(
+            result.get("architecture_consistency_preserved")
+        )
+        self.knowledge_ecosystem_coherence_preserved = bool(
+            result.get("ecosystem_coherence_preserved")
+        )
+        self.knowledge_operational_traceability_preserved = bool(
+            result.get("operational_traceability_preserved")
+        )
+        self.knowledge_read_only_preserved = bool(
+            result.get("read_only_preserved")
+        )
+        self.knowledge_human_visibility_payload = dict(
+            result.get("human_visibility_payload") or {}
+        )
+        self.knowledge_core_reader_lifecycle = [
+            dict(entry)
+            for entry in (result.get("read_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.knowledge_core_reader_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.knowledge_core_reader_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.knowledge_core_reader_last_error = result.get("error")
+        self.knowledge_core_reader_metadata = dict(
+            result.get("metadata") or {}
+        )
+
+        if self.knowledge_core_reader_status == "loaded":
+            self.knowledge_core_reader_loaded += 1
+        elif self.knowledge_core_reader_status == "blocked":
+            self.knowledge_core_reader_blocked += 1
+        else:
+            self.knowledge_core_reader_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -9333,6 +9458,77 @@ class RuntimeStatus:
             "metadata": dict(self.sentinel_audit_reporting_metadata),
         }
 
+    def knowledge_core_reader_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_knowledge_core_reader_at": fmt(
+                self.last_knowledge_core_reader_at
+            ),
+            "knowledge_core_reader_iteration": (
+                self.knowledge_core_reader_iteration
+            ),
+            "knowledge_core_reader_status": self.knowledge_core_reader_status,
+            "knowledge_core_reader_loaded": (
+                self.knowledge_core_reader_loaded
+            ),
+            "knowledge_core_reader_blocked": (
+                self.knowledge_core_reader_blocked
+            ),
+            "knowledge_core_reader_errors": (
+                self.knowledge_core_reader_errors
+            ),
+            "read_id": self.knowledge_core_read_id,
+            "source_roots": list(self.knowledge_core_source_roots),
+            "knowledge_sources": [
+                dict(source) for source in self.knowledge_core_sources
+            ],
+            "components_found": dict(self.knowledge_core_components_found),
+            "documents_read": self.knowledge_core_documents_read,
+            "total_bytes_read": self.knowledge_core_total_bytes_read,
+            "execution_context": dict(self.knowledge_core_execution_context),
+            "roadmap_context": dict(self.knowledge_core_roadmap_context),
+            "dependency_context": dict(self.knowledge_core_dependency_context),
+            "governance_context": dict(self.knowledge_core_governance_context),
+            "source_legitimacy_valid": (
+                self.knowledge_source_legitimacy_valid
+            ),
+            "roadmap_consistency_valid": (
+                self.knowledge_roadmap_consistency_valid
+            ),
+            "standards_compatible": self.knowledge_standards_compatible,
+            "dependency_integrity_valid": (
+                self.knowledge_dependency_integrity_valid
+            ),
+            "governance_alignment_valid": (
+                self.knowledge_governance_alignment_valid
+            ),
+            "context_continuity_preserved": (
+                self.knowledge_context_continuity_preserved
+            ),
+            "architecture_consistency_preserved": (
+                self.knowledge_architecture_consistency_preserved
+            ),
+            "ecosystem_coherence_preserved": (
+                self.knowledge_ecosystem_coherence_preserved
+            ),
+            "operational_traceability_preserved": (
+                self.knowledge_operational_traceability_preserved
+            ),
+            "read_only_preserved": self.knowledge_read_only_preserved,
+            "human_visibility_payload": dict(
+                self.knowledge_human_visibility_payload
+            ),
+            "read_lifecycle": [
+                dict(entry) for entry in self.knowledge_core_reader_lifecycle
+            ],
+            "duration_ms": self.knowledge_core_reader_duration_ms,
+            "reasons": list(self.knowledge_core_reader_reasons),
+            "last_error": self.knowledge_core_reader_last_error,
+            "metadata": dict(self.knowledge_core_reader_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -9572,6 +9768,7 @@ class RuntimeStatus:
             "sentinel_audit_reporting": (
                 self.sentinel_audit_reporting_metrics()
             ),
+            "knowledge_core_reader": self.knowledge_core_reader_metrics(),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
             "response_safety": self.response_safety_metrics(),
