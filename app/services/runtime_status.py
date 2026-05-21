@@ -512,6 +512,36 @@ class RuntimeStatus:
         self.provider_failure_reasons: list[str] = []
         self.provider_failure_last_error: str | None = None
         self.provider_failure_metadata: dict = {}
+        self.last_provider_routing_at: datetime | None = None
+        self.provider_routing_iteration = 0
+        self.provider_routing_status = "stopped"
+        self.provider_routes_selected = 0
+        self.provider_routes_blocked = 0
+        self.provider_routes_degraded = 0
+        self.provider_routing_errors = 0
+        self.last_provider_routing_id: str | None = None
+        self.provider_routing_type: str | None = None
+        self.provider_routing_task_type: str | None = None
+        self.provider_routing_selected_provider: str | None = None
+        self.provider_routing_cost_estimate: str | None = None
+        self.provider_routing_execution_priority: str | None = None
+        self.provider_routing_reason: str | None = None
+        self.provider_routing_fallback_status: str | None = None
+        self.provider_routing_fallback_provider: str | None = None
+        self.provider_routing_provider_degraded = False
+        self.provider_routing_quality_estimate: str | None = None
+        self.provider_routing_execution_mode: str | None = None
+        self.provider_routing_runtime_limits: dict = {}
+        self.provider_routing_available_providers: list[str] = []
+        self.provider_routing_blocked_providers: list[str] = []
+        self.provider_routing_evaluated_providers: list[dict] = []
+        self.provider_routing_selected_health: dict = {}
+        self.provider_routing_fallback_health: dict = {}
+        self.provider_routing_conflict = False
+        self.provider_routing_duration_ms = 0
+        self.provider_routing_reasons: list[str] = []
+        self.provider_routing_last_error: str | None = None
+        self.provider_routing_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -2260,6 +2290,72 @@ class RuntimeStatus:
         if self.provider_failure_control_status == "error":
             self.provider_failure_control_errors += 1
 
+    def mark_provider_routing_result(self, result: dict) -> None:
+        self.last_provider_routing_at = datetime.now(timezone.utc)
+        self.provider_routing_iteration += 1
+        self.provider_routing_status = result.get("status") or "unknown"
+        self.last_provider_routing_id = result.get("routing_id")
+        self.provider_routing_type = result.get("routing_type")
+        self.provider_routing_task_type = result.get("task_type")
+        self.provider_routing_selected_provider = result.get(
+            "provider_selected"
+        )
+        self.provider_routing_cost_estimate = result.get("cost_estimate")
+        self.provider_routing_execution_priority = result.get(
+            "execution_priority"
+        )
+        self.provider_routing_reason = result.get("routing_reason")
+        self.provider_routing_fallback_status = result.get("fallback_status")
+        self.provider_routing_fallback_provider = result.get(
+            "fallback_provider"
+        )
+        self.provider_routing_provider_degraded = bool(
+            result.get("provider_degraded")
+        )
+        self.provider_routing_quality_estimate = result.get("quality_estimate")
+        self.provider_routing_execution_mode = result.get("execution_mode")
+        self.provider_routing_runtime_limits = dict(
+            result.get("runtime_limits") or {}
+        )
+        self.provider_routing_available_providers = [
+            str(provider)
+            for provider in (result.get("available_providers") or [])
+        ]
+        self.provider_routing_blocked_providers = [
+            str(provider)
+            for provider in (result.get("blocked_providers") or [])
+        ]
+        self.provider_routing_evaluated_providers = [
+            dict(provider)
+            for provider in (result.get("evaluated_providers") or [])
+            if isinstance(provider, dict)
+        ]
+        self.provider_routing_selected_health = dict(
+            result.get("selected_provider_health") or {}
+        )
+        self.provider_routing_fallback_health = dict(
+            result.get("fallback_health") or {}
+        )
+        self.provider_routing_conflict = bool(result.get("routing_conflict"))
+        self.provider_routing_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.provider_routing_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.provider_routing_last_error = result.get("error")
+        self.provider_routing_metadata = dict(result.get("metadata") or {})
+        if self.provider_routing_status == "selected":
+            self.provider_routes_selected += 1
+        elif self.provider_routing_status == "degraded":
+            self.provider_routes_degraded += 1
+            self.provider_routes_selected += 1
+        elif self.provider_routing_status == "blocked":
+            self.provider_routes_blocked += 1
+        else:
+            self.provider_routing_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -3386,6 +3482,50 @@ class RuntimeStatus:
             "metadata": dict(self.provider_failure_metadata),
         }
 
+    def provider_routing_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_provider_routing_at": fmt(self.last_provider_routing_at),
+            "provider_routing_iteration": self.provider_routing_iteration,
+            "provider_routing_status": self.provider_routing_status,
+            "provider_routes_selected": self.provider_routes_selected,
+            "provider_routes_blocked": self.provider_routes_blocked,
+            "provider_routes_degraded": self.provider_routes_degraded,
+            "provider_routing_errors": self.provider_routing_errors,
+            "routing_id": self.last_provider_routing_id,
+            "routing_type": self.provider_routing_type,
+            "task_type": self.provider_routing_task_type,
+            "provider_selected": self.provider_routing_selected_provider,
+            "cost_estimate": self.provider_routing_cost_estimate,
+            "execution_priority": self.provider_routing_execution_priority,
+            "routing_reason": self.provider_routing_reason,
+            "fallback_status": self.provider_routing_fallback_status,
+            "fallback_provider": self.provider_routing_fallback_provider,
+            "provider_degraded": self.provider_routing_provider_degraded,
+            "quality_estimate": self.provider_routing_quality_estimate,
+            "execution_mode": self.provider_routing_execution_mode,
+            "runtime_limits": dict(self.provider_routing_runtime_limits),
+            "available_providers": list(
+                self.provider_routing_available_providers
+            ),
+            "blocked_providers": list(self.provider_routing_blocked_providers),
+            "evaluated_providers": [
+                dict(provider)
+                for provider in self.provider_routing_evaluated_providers
+            ],
+            "selected_provider_health": dict(
+                self.provider_routing_selected_health
+            ),
+            "fallback_health": dict(self.provider_routing_fallback_health),
+            "routing_conflict": self.provider_routing_conflict,
+            "duration_ms": self.provider_routing_duration_ms,
+            "reasons": list(self.provider_routing_reasons),
+            "last_error": self.provider_routing_last_error,
+            "metadata": dict(self.provider_routing_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -3581,6 +3721,7 @@ class RuntimeStatus:
                 self.provider_response_handling_metrics()
             ),
             "provider_failure_control": self.provider_failure_control_metrics(),
+            "provider_routing": self.provider_routing_metrics(),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
             "response_safety": self.response_safety_metrics(),
