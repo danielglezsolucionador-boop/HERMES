@@ -737,6 +737,43 @@ class RuntimeStatus:
         self.phase_continuation_reasons: list[str] = []
         self.phase_continuation_last_error: str | None = None
         self.phase_continuation_metadata: dict = {}
+        self.last_checkpoint_recovery_at: datetime | None = None
+        self.checkpoint_recovery_iteration = 0
+        self.checkpoint_recovery_status = "stopped"
+        self.checkpoints_created = 0
+        self.checkpoint_recoveries_prepared = 0
+        self.checkpoint_recoveries_blocked = 0
+        self.checkpoint_recovery_errors = 0
+        self.last_checkpoint_id: str | None = None
+        self.last_recovery_id: str | None = None
+        self.checkpoint_execution_id: str | None = None
+        self.checkpoint_task_id: str | None = None
+        self.checkpoint_type: str | None = None
+        self.checkpoint_recovery_state: str | None = None
+        self.checkpoint_valid = False
+        self.checkpoint_checksum: str | None = None
+        self.checkpoint_restoration_ready = False
+        self.checkpoint_continuation_status: str | None = None
+        self.checkpoint_context_preserved = False
+        self.checkpoint_traceability_preserved = False
+        self.checkpoint_governance_review_required = False
+        self.checkpoint_audit_review_required = False
+        self.checkpoint_payload: dict = {}
+        self.checkpoint_restored_state: dict = {}
+        self.checkpoint_phase_state: dict = {}
+        self.checkpoint_runtime_state: dict = {}
+        self.checkpoint_governance_state: dict = {}
+        self.checkpoint_audit_state: dict = {}
+        self.checkpoint_provider_state: dict = {}
+        self.checkpoint_execution_context: dict = {}
+        self.checkpoint_lifecycle_state: dict = {}
+        self.checkpoint_modified_files: list[str] = []
+        self.checkpoint_recovery_logs: list[dict] = []
+        self.checkpoint_recovery_lifecycle: list[dict] = []
+        self.checkpoint_recovery_duration_ms = 0
+        self.checkpoint_recovery_reasons: list[str] = []
+        self.checkpoint_recovery_last_error: str | None = None
+        self.checkpoint_recovery_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -2996,6 +3033,77 @@ class RuntimeStatus:
         else:
             self.phase_continuation_errors += 1
 
+    def mark_checkpoint_recovery_result(self, result: dict) -> None:
+        self.last_checkpoint_recovery_at = datetime.now(timezone.utc)
+        self.checkpoint_recovery_iteration += 1
+        self.checkpoint_recovery_status = result.get("status") or "unknown"
+        self.last_checkpoint_id = result.get("checkpoint_id")
+        self.last_recovery_id = result.get("recovery_id")
+        self.checkpoint_execution_id = result.get("execution_id")
+        self.checkpoint_task_id = result.get("task_id")
+        self.checkpoint_type = result.get("checkpoint_type")
+        self.checkpoint_recovery_state = result.get("recovery_status")
+        self.checkpoint_valid = bool(result.get("checkpoint_valid"))
+        self.checkpoint_checksum = result.get("checkpoint_checksum")
+        self.checkpoint_restoration_ready = bool(result.get("restoration_ready"))
+        self.checkpoint_continuation_status = result.get("continuation_status")
+        self.checkpoint_context_preserved = bool(result.get("context_preserved"))
+        self.checkpoint_traceability_preserved = bool(
+            result.get("traceability_preserved")
+        )
+        self.checkpoint_governance_review_required = bool(
+            result.get("governance_review_required")
+        )
+        self.checkpoint_audit_review_required = bool(
+            result.get("audit_review_required")
+        )
+        self.checkpoint_payload = dict(result.get("checkpoint") or {})
+        self.checkpoint_restored_state = dict(result.get("restored_state") or {})
+        self.checkpoint_phase_state = dict(result.get("phase_state") or {})
+        self.checkpoint_runtime_state = dict(result.get("runtime_state") or {})
+        self.checkpoint_governance_state = dict(
+            result.get("governance_state") or {}
+        )
+        self.checkpoint_audit_state = dict(result.get("audit_state") or {})
+        self.checkpoint_provider_state = dict(result.get("provider_state") or {})
+        self.checkpoint_execution_context = dict(
+            result.get("execution_context") or {}
+        )
+        self.checkpoint_lifecycle_state = dict(
+            result.get("lifecycle_state") or {}
+        )
+        self.checkpoint_modified_files = [
+            str(path) for path in (result.get("modified_files") or [])
+        ]
+        self.checkpoint_recovery_logs = [
+            dict(entry)
+            for entry in (result.get("recovery_logs") or [])
+            if isinstance(entry, dict)
+        ]
+        self.checkpoint_recovery_lifecycle = [
+            dict(entry)
+            for entry in (result.get("recovery_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.checkpoint_recovery_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.checkpoint_recovery_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.checkpoint_recovery_last_error = result.get("error")
+        self.checkpoint_recovery_metadata = dict(result.get("metadata") or {})
+
+        if self.checkpoint_recovery_status == "created":
+            self.checkpoints_created += 1
+        elif self.checkpoint_recovery_status == "recovery_prepared":
+            self.checkpoint_recoveries_prepared += 1
+        elif self.checkpoint_recovery_status == "blocked":
+            self.checkpoint_recoveries_blocked += 1
+        else:
+            self.checkpoint_recovery_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -4471,6 +4579,60 @@ class RuntimeStatus:
             "metadata": dict(self.phase_continuation_metadata),
         }
 
+    def checkpoint_recovery_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_checkpoint_recovery_at": fmt(
+                self.last_checkpoint_recovery_at
+            ),
+            "checkpoint_recovery_iteration": self.checkpoint_recovery_iteration,
+            "checkpoint_recovery_status": self.checkpoint_recovery_status,
+            "checkpoints_created": self.checkpoints_created,
+            "checkpoint_recoveries_prepared": (
+                self.checkpoint_recoveries_prepared
+            ),
+            "checkpoint_recoveries_blocked": self.checkpoint_recoveries_blocked,
+            "checkpoint_recovery_errors": self.checkpoint_recovery_errors,
+            "checkpoint_id": self.last_checkpoint_id,
+            "recovery_id": self.last_recovery_id,
+            "execution_id": self.checkpoint_execution_id,
+            "task_id": self.checkpoint_task_id,
+            "checkpoint_type": self.checkpoint_type,
+            "recovery_status": self.checkpoint_recovery_state,
+            "checkpoint_valid": self.checkpoint_valid,
+            "checkpoint_checksum": self.checkpoint_checksum,
+            "restoration_ready": self.checkpoint_restoration_ready,
+            "continuation_status": self.checkpoint_continuation_status,
+            "context_preserved": self.checkpoint_context_preserved,
+            "traceability_preserved": self.checkpoint_traceability_preserved,
+            "governance_review_required": (
+                self.checkpoint_governance_review_required
+            ),
+            "audit_review_required": self.checkpoint_audit_review_required,
+            "checkpoint": dict(self.checkpoint_payload),
+            "restored_state": dict(self.checkpoint_restored_state),
+            "phase_state": dict(self.checkpoint_phase_state),
+            "runtime_state": dict(self.checkpoint_runtime_state),
+            "governance_state": dict(self.checkpoint_governance_state),
+            "audit_state": dict(self.checkpoint_audit_state),
+            "provider_state": dict(self.checkpoint_provider_state),
+            "execution_context": dict(self.checkpoint_execution_context),
+            "lifecycle_state": dict(self.checkpoint_lifecycle_state),
+            "modified_files": list(self.checkpoint_modified_files),
+            "recovery_logs": [
+                dict(entry) for entry in self.checkpoint_recovery_logs
+            ],
+            "recovery_lifecycle": [
+                dict(entry) for entry in self.checkpoint_recovery_lifecycle
+            ],
+            "duration_ms": self.checkpoint_recovery_duration_ms,
+            "reasons": list(self.checkpoint_recovery_reasons),
+            "last_error": self.checkpoint_recovery_last_error,
+            "metadata": dict(self.checkpoint_recovery_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -4673,6 +4835,7 @@ class RuntimeStatus:
             "approval_gate": self.approval_gate_metrics(),
             "execution_blocking": self.execution_blocking_metrics(),
             "phase_continuation": self.phase_continuation_metrics(),
+            "checkpoint_recovery": self.checkpoint_recovery_metrics(),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
             "response_safety": self.response_safety_metrics(),
