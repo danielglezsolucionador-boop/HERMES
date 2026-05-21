@@ -222,6 +222,51 @@ class RuntimeStatus:
         self.timeout_threshold_ms = 0
         self.timeout_control_metadata: dict = {}
         self.timeout_control_reasons: list[str] = []
+        self.retry_control_started_at: datetime | None = None
+        self.last_retry_control_at: datetime | None = None
+        self.retry_control_iteration = 0
+        self.retry_control_enabled = False
+        self.retry_control_status = "stopped"
+        self.retry_state: str | None = None
+        self.retry_control_interval_seconds = 0.0
+        self.retry_control_last_duration_ms = 0
+        self.retry_control_errors = 0
+        self.retry_control_last_error: str | None = None
+        self.retries_registered = 0
+        self.retries_started = 0
+        self.retries_completed = 0
+        self.retries_rejected = 0
+        self.retries_failed = 0
+        self.retry_allowed = True
+        self.retry_runtime_protected = True
+        self.retry_linkage_valid = True
+        self.retry_ownership_consistent = True
+        self.retry_threshold_valid = True
+        self.retry_provider_available = True
+        self.active_retries = 0
+        self.max_concurrent_retries = 0
+        self.runtime_retry_load: float | None = None
+        self.max_runtime_retry_load = 0.0
+        self.max_retry_attempts = 0
+        self.max_retry_duration_ms = 0
+        self.max_retry_overhead_ms = 0
+        self.last_retry_id: str | None = None
+        self.last_retry_execution_id: str | None = None
+        self.last_retry_task_id: str | None = None
+        self.last_retry_runner_id: str | None = None
+        self.last_retry_runtime_id: str | None = None
+        self.last_retry_runtime_owner: str | None = None
+        self.last_retry_execution_state: str | None = None
+        self.last_retry_task_status: str | None = None
+        self.last_retry_provider_status: str | None = None
+        self.last_retry_attempt = 0
+        self.last_retry_threshold = 0
+        self.last_retry_reason: str | None = None
+        self.last_retry_started_at: str | None = None
+        self.last_retry_completed_at: str | None = None
+        self.last_retry_duration_ms = 0
+        self.retry_control_metadata: dict = {}
+        self.retry_control_reasons: list[str] = []
         self.provider_bridge_started_at: datetime | None = None
         self.last_provider_bridge_at: datetime | None = None
         self.provider_bridge_iteration = 0
@@ -493,6 +538,7 @@ class RuntimeStatus:
         self.execution_status = "stopped"
         self.execution_safety_status = "stopped"
         self.timeout_control_status = "stopped"
+        self.retry_control_status = "stopped"
         self.provider_bridge_status = "stopped"
         self.response_ingestion_status = "stopped"
         self.response_validation_status = "stopped"
@@ -1137,6 +1183,129 @@ class RuntimeStatus:
         self.timeout_monitoring_allowed = False
         self.timeout_runtime_protected = True
         self.timeout_control_last_error = error or "unknown_timeout_control_error"
+
+    def mark_retry_control_started(
+        self,
+        enabled: bool,
+        interval_seconds: float,
+        max_retry_attempts: int = 0,
+        max_concurrent_retries: int = 0,
+        max_retry_duration_ms: int = 0,
+        max_runtime_retry_load: float = 0.0,
+        max_retry_overhead_ms: int = 0,
+    ) -> None:
+        self.retry_control_started_at = datetime.now(timezone.utc)
+        self.retry_control_enabled = bool(enabled)
+        self.retry_control_status = "active" if enabled else "disabled"
+        self.retry_state = "ready" if enabled else "disabled"
+        self.retry_control_interval_seconds = interval_seconds
+        self.max_retry_attempts = max(0, int(max_retry_attempts or 0))
+        self.max_concurrent_retries = max(
+            0,
+            int(max_concurrent_retries or 0),
+        )
+        self.max_retry_duration_ms = max(0, int(max_retry_duration_ms or 0))
+        self.max_runtime_retry_load = max(
+            0.0,
+            float(max_runtime_retry_load or 0.0),
+        )
+        self.max_retry_overhead_ms = max(0, int(max_retry_overhead_ms or 0))
+        self.retry_control_last_error = None
+
+    def mark_retry_control_result(self, result: dict) -> None:
+        self.last_retry_control_at = datetime.now(timezone.utc)
+        self.retry_control_iteration += 1
+        self.retry_control_status = result.get("status") or "unknown"
+        self.retry_state = result.get("retry_state")
+        self.retry_control_last_duration_ms = max(
+            0,
+            int(result.get("retry_control_overhead_ms") or 0),
+        )
+        self.retry_allowed = bool(result.get("retry_allowed"))
+        self.retry_runtime_protected = bool(result.get("runtime_protected", True))
+        self.retry_linkage_valid = bool(result.get("linkage_valid", True))
+        self.retry_ownership_consistent = bool(
+            result.get("ownership_consistent", True)
+        )
+        self.retry_threshold_valid = bool(result.get("threshold_valid", True))
+        self.retry_provider_available = bool(result.get("provider_available", True))
+        self.active_retries = max(0, int(result.get("active_retries") or 0))
+        self.max_concurrent_retries = max(
+            0,
+            int(result.get("max_concurrent_retries") or 0),
+        )
+        runtime_load = result.get("runtime_retry_load")
+        self.runtime_retry_load = (
+            float(runtime_load) if runtime_load is not None else None
+        )
+        self.max_runtime_retry_load = max(
+            0.0,
+            float(result.get("max_runtime_retry_load") or 0.0),
+        )
+        self.max_retry_duration_ms = max(
+            0,
+            int(result.get("max_retry_duration_ms") or 0),
+        )
+        self.max_retry_overhead_ms = max(
+            0,
+            int(result.get("max_retry_overhead_ms") or 0),
+        )
+        self.last_retry_id = result.get("retry_id")
+        self.last_retry_execution_id = result.get("execution_id")
+        self.last_retry_task_id = result.get("task_id")
+        self.last_retry_runner_id = result.get("runner_id")
+        self.last_retry_runtime_id = result.get("runtime_id")
+        self.last_retry_runtime_owner = result.get("runtime_owner")
+        self.last_retry_execution_state = result.get("execution_state")
+        self.last_retry_task_status = result.get("task_status")
+        self.last_retry_provider_status = result.get("provider_status")
+        self.last_retry_attempt = max(0, int(result.get("retry_attempt") or 0))
+        self.last_retry_threshold = max(
+            0,
+            int(result.get("retry_threshold") or 0),
+        )
+        self.last_retry_reason = result.get("retry_reason")
+        self.last_retry_started_at = result.get("retry_started_at")
+        self.last_retry_completed_at = result.get("retry_completed_at")
+        self.last_retry_duration_ms = max(
+            0,
+            int(result.get("retry_duration_ms") or 0),
+        )
+        self.retry_control_metadata = dict(result.get("metadata") or {})
+        self.retry_control_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.retry_control_last_error = result.get("error")
+
+        if self.retry_control_status == "registered":
+            self.retries_registered += 1
+        elif self.retry_control_status == "executing":
+            self.retries_started += 1
+        elif self.retry_control_status == "completed":
+            self.retries_completed += 1
+        elif self.retry_control_status == "rejected":
+            self.retries_rejected += 1
+        elif self.retry_control_status == "failed":
+            self.retries_failed += 1
+        elif self.retry_control_status == "error":
+            self.retries_failed += 1
+            self.retry_control_errors += 1
+
+    def mark_retry_control_error(
+        self,
+        error: str,
+        duration_ms: int = 0,
+    ) -> None:
+        self.last_retry_control_at = datetime.now(timezone.utc)
+        self.retry_control_iteration += 1
+        self.retry_control_last_duration_ms = max(0, int(duration_ms or 0))
+        self.retry_control_errors += 1
+        self.retries_failed += 1
+        self.retry_control_status = "error"
+        self.retry_state = "error"
+        self.retry_allowed = False
+        self.retry_runtime_protected = True
+        self.retry_control_last_error = error or "unknown_retry_control_error"
 
     def mark_provider_bridge_started(
         self,
@@ -1943,6 +2112,60 @@ class RuntimeStatus:
             "reasons": list(self.timeout_control_reasons),
         }
 
+    def retry_control_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "started_at": fmt(self.retry_control_started_at),
+            "last_retry_control_at": fmt(self.last_retry_control_at),
+            "retry_control_iteration": self.retry_control_iteration,
+            "retry_control_enabled": self.retry_control_enabled,
+            "retry_control_status": self.retry_control_status,
+            "retry_state": self.retry_state,
+            "retry_control_interval_seconds": self.retry_control_interval_seconds,
+            "retry_control_last_duration_ms": (
+                self.retry_control_last_duration_ms
+            ),
+            "retry_control_errors": self.retry_control_errors,
+            "retry_control_last_error": self.retry_control_last_error,
+            "retries_registered": self.retries_registered,
+            "retries_started": self.retries_started,
+            "retries_completed": self.retries_completed,
+            "retries_rejected": self.retries_rejected,
+            "retries_failed": self.retries_failed,
+            "retry_allowed": self.retry_allowed,
+            "runtime_protected": self.retry_runtime_protected,
+            "linkage_valid": self.retry_linkage_valid,
+            "ownership_consistent": self.retry_ownership_consistent,
+            "threshold_valid": self.retry_threshold_valid,
+            "provider_available": self.retry_provider_available,
+            "active_retries": self.active_retries,
+            "max_concurrent_retries": self.max_concurrent_retries,
+            "runtime_retry_load": self.runtime_retry_load,
+            "max_runtime_retry_load": self.max_runtime_retry_load,
+            "max_retry_attempts": self.max_retry_attempts,
+            "max_retry_duration_ms": self.max_retry_duration_ms,
+            "max_retry_overhead_ms": self.max_retry_overhead_ms,
+            "retry_id": self.last_retry_id,
+            "execution_id": self.last_retry_execution_id,
+            "task_id": self.last_retry_task_id,
+            "runner_id": self.last_retry_runner_id,
+            "runtime_id": self.last_retry_runtime_id,
+            "runtime_owner": self.last_retry_runtime_owner,
+            "execution_state": self.last_retry_execution_state,
+            "task_status": self.last_retry_task_status,
+            "provider_status": self.last_retry_provider_status,
+            "retry_attempt": self.last_retry_attempt,
+            "retry_threshold": self.last_retry_threshold,
+            "retry_reason": self.last_retry_reason,
+            "retry_started_at": self.last_retry_started_at,
+            "retry_completed_at": self.last_retry_completed_at,
+            "retry_duration_ms": self.last_retry_duration_ms,
+            "metadata": dict(self.retry_control_metadata),
+            "reasons": list(self.retry_control_reasons),
+        }
+
     def provider_bridge_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -2168,6 +2391,7 @@ class RuntimeStatus:
             "execution": self.execution_metrics(),
             "execution_safety": self.execution_safety_metrics(),
             "timeout_control": self.timeout_control_metrics(),
+            "retry_control": self.retry_control_metrics(),
             "provider_bridge": self.provider_bridge_metrics(),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),

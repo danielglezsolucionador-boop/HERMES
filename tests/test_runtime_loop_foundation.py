@@ -351,6 +351,37 @@ async def test_runtime_loop_initializes_timeout_control_metrics():
 
 
 @pytest.mark.asyncio
+async def test_runtime_loop_initializes_retry_control_metrics():
+    async def two_discovered_tasks() -> TaskDiscoveryResult:
+        return TaskDiscoveryResult.from_count(2)
+
+    status = RuntimeStatus()
+    loop = RuntimeLoop(
+        status=status,
+        interval_seconds=0.01,
+        min_interval_seconds=0.01,
+        heartbeat_log_every=1000,
+        task_discovery=two_discovered_tasks,
+        retry_control_enabled=True,
+    )
+
+    task = asyncio.create_task(loop.run())
+    await asyncio.sleep(0.03)
+    retry_control = status.retry_control_metrics()
+    loop.request_stop("test_stop")
+    await asyncio.wait_for(task, timeout=1)
+
+    assert retry_control["retry_control_enabled"] is True
+    assert retry_control["retry_control_status"] == "idle"
+    assert retry_control["retry_state"] == "ready"
+    assert retry_control["retry_control_iteration"] > 0
+    assert retry_control["retries_registered"] == 0
+    assert retry_control["active_retries"] == 0
+    assert retry_control["max_concurrent_retries"] == 1
+    assert retry_control["runtime_protected"] is True
+
+
+@pytest.mark.asyncio
 async def test_runtime_loop_initializes_response_ingestion_metrics():
     async def two_discovered_tasks() -> TaskDiscoveryResult:
         return TaskDiscoveryResult.from_count(2)

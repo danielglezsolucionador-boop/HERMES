@@ -22,6 +22,7 @@ from app.runner.execution_safety import ExecutionSafety, ExecutionSafetyResult
 from app.runner.response_ingestion import ResponseIngestionRuntime
 from app.runner.response_safety import ResponseSafetyRuntime
 from app.runner.response_validation import ResponseValidationRuntime
+from app.runner.retry_control import RetryControl, RetryControlResult
 from app.runner.task_claiming import TaskClaiming, TaskClaimingResult
 from app.runner.task_discovery import TaskDiscovery, TaskDiscoveryResult
 from app.runner.task_execution import TaskExecutionRuntime
@@ -49,11 +50,13 @@ class RuntimeLoop:
         pickup_safety: Callable[[], Awaitable[PickupSafetyResult]] | None = None,
         execution_safety: Callable[[], Awaitable[ExecutionSafetyResult]] | None = None,
         timeout_control: Callable[[], Awaitable[TimeoutControlResult]] | None = None,
+        retry_control: Callable[[], Awaitable[RetryControlResult]] | None = None,
         claiming_enabled: bool = settings.TASK_CLAIMING_ENABLED,
         pickup_safety_enabled: bool = settings.TASK_PICKUP_SAFETY_ENABLED,
         execution_enabled: bool = settings.TASK_EXECUTION_ENABLED,
         execution_safety_enabled: bool = settings.TASK_EXECUTION_SAFETY_ENABLED,
         timeout_control_enabled: bool = settings.TIMEOUT_CONTROL_ENABLED,
+        retry_control_enabled: bool = settings.RETRY_CONTROL_ENABLED,
         provider_bridge_enabled: bool = settings.PROVIDER_BRIDGE_ENABLED,
         response_ingestion_enabled: bool = settings.RESPONSE_INGESTION_ENABLED,
         response_validation_enabled: bool = settings.RESPONSE_VALIDATION_ENABLED,
@@ -89,6 +92,9 @@ class RuntimeLoop:
         self.timeout_control_enabled = bool(timeout_control_enabled)
         self.timeout_control_runtime = TimeoutControl()
         self.timeout_control = timeout_control or self._inspect_timeout_control
+        self.retry_control_enabled = bool(retry_control_enabled)
+        self.retry_control_runtime = RetryControl()
+        self.retry_control = retry_control or self._inspect_retry_control
         self.provider_bridge_enabled = bool(provider_bridge_enabled)
         self.response_ingestion_enabled = bool(response_ingestion_enabled)
         self.response_ingestion = ResponseIngestionRuntime()
@@ -160,6 +166,9 @@ class RuntimeLoop:
             self.status.mark_timeout_control_result(
                 timeout_control_result.to_dict()
             )
+        if self.retry_control_enabled:
+            retry_control_result = await self.retry_control()
+            self.status.mark_retry_control_result(retry_control_result.to_dict())
         if (
             tasks_detected > 0
             and tasks_detected != self._last_logged_tasks_detected
@@ -200,6 +209,13 @@ class RuntimeLoop:
         return await self.timeout_control_runtime.inspect(
             execution_visibility=self.task_execution_runtime.visibility(),
             runtime_active=not self._stop_requested,
+        )
+
+    async def _inspect_retry_control(self) -> RetryControlResult:
+        return await self.retry_control_runtime.inspect(
+            runtime_active=not self._stop_requested,
+            retry_permitted=True,
+            provider_available=True,
         )
 
     async def _count_pending_tasks(self) -> int:
@@ -257,6 +273,15 @@ class RuntimeLoop:
             max_timeout_check_duration_ms=(
                 settings.TIMEOUT_CONTROL_MAX_CHECK_DURATION_MS
             ),
+        )
+        self.status.mark_retry_control_started(
+            enabled=self.retry_control_enabled,
+            interval_seconds=self.interval_seconds,
+            max_retry_attempts=settings.RETRY_CONTROL_MAX_ATTEMPTS,
+            max_concurrent_retries=settings.RETRY_CONTROL_MAX_CONCURRENT_RETRIES,
+            max_retry_duration_ms=settings.RETRY_CONTROL_MAX_DURATION_MS,
+            max_runtime_retry_load=settings.RETRY_CONTROL_MAX_RUNTIME_LOAD,
+            max_retry_overhead_ms=settings.RETRY_CONTROL_MAX_OVERHEAD_MS,
         )
         self.status.mark_provider_bridge_started(
             enabled=self.provider_bridge_enabled,
@@ -333,6 +358,10 @@ class RuntimeLoop:
             "enabled" if self.timeout_control_enabled else "disabled",
         )
         logger.info(
+            "runtime_loop: retry control %s",
+            "enabled" if self.retry_control_enabled else "disabled",
+        )
+        logger.info(
             "runtime_loop: provider bridge %s",
             "enabled" if self.provider_bridge_enabled else "disabled",
         )
@@ -379,6 +408,11 @@ class RuntimeLoop:
                         self.status.mark_execution_safety_error(str(exc), poll_duration_ms)
                     if self.timeout_control_enabled:
                         self.status.mark_timeout_control_error(
+                            str(exc),
+                            poll_duration_ms,
+                        )
+                    if self.retry_control_enabled:
+                        self.status.mark_retry_control_error(
                             str(exc),
                             poll_duration_ms,
                         )
