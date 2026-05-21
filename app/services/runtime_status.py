@@ -1823,6 +1823,42 @@ class RuntimeStatus:
         self.workflow_execution_engine_reasons: list[str] = []
         self.workflow_execution_engine_last_error: str | None = None
         self.workflow_execution_engine_metadata: dict = {}
+        self.last_multi_step_execution_control_at: datetime | None = None
+        self.multi_step_execution_control_iteration = 0
+        self.multi_step_execution_control_status = "stopped"
+        self.multi_step_controls_advanced = 0
+        self.multi_step_controls_completed = 0
+        self.multi_step_controls_blocked = 0
+        self.multi_step_execution_control_errors = 0
+        self.multi_step_control_id: str | None = None
+        self.multi_step_workflow_id: str | None = None
+        self.multi_step_current_step: str | None = None
+        self.multi_step_next_step: str | None = None
+        self.multi_step_expected_next_step: str | None = None
+        self.multi_step_continuation_status: str | None = None
+        self.multi_step_governance_status: str | None = None
+        self.multi_step_checkpoint_status: str | None = None
+        self.multi_step_workflow_consistency_valid = False
+        self.multi_step_execution_sequencing_valid = False
+        self.multi_step_transition_valid = False
+        self.multi_step_runtime_integrity_valid = False
+        self.multi_step_governance_alignment_valid = False
+        self.multi_step_execution_continuity_valid = False
+        self.multi_step_operational_stability_valid = False
+        self.multi_step_workflow_integrity_preserved = False
+        self.multi_step_execution_traceability_preserved = False
+        self.multi_step_workflow_progression: str | None = None
+        self.multi_step_execution_order: list[str] = []
+        self.multi_step_completed_steps: list[str] = []
+        self.multi_step_pending_steps: list[str] = []
+        self.multi_step_invalid_steps: list[str] = []
+        self.multi_step_blocking_conditions: list[str] = []
+        self.multi_step_human_visibility_payload: dict = {}
+        self.multi_step_control_lifecycle: list[dict] = []
+        self.multi_step_execution_control_duration_ms = 0
+        self.multi_step_execution_control_reasons: list[str] = []
+        self.multi_step_execution_control_last_error: str | None = None
+        self.multi_step_execution_control_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -6785,6 +6821,94 @@ class RuntimeStatus:
         else:
             self.workflow_execution_engine_errors += 1
 
+    def mark_multi_step_execution_control_result(self, result: dict) -> None:
+        self.last_multi_step_execution_control_at = datetime.now(timezone.utc)
+        self.multi_step_execution_control_iteration += 1
+        self.multi_step_execution_control_status = (
+            result.get("status") or "unknown"
+        )
+        self.multi_step_control_id = result.get("control_id")
+        self.multi_step_workflow_id = result.get("workflow_id")
+        self.multi_step_current_step = result.get("current_step")
+        self.multi_step_next_step = result.get("next_step")
+        self.multi_step_expected_next_step = result.get("expected_next_step")
+        self.multi_step_continuation_status = result.get("continuation_status")
+        self.multi_step_governance_status = result.get("governance_status")
+        self.multi_step_checkpoint_status = result.get("checkpoint_status")
+        self.multi_step_workflow_consistency_valid = bool(
+            result.get("workflow_consistency_valid")
+        )
+        self.multi_step_execution_sequencing_valid = bool(
+            result.get("execution_sequencing_valid")
+        )
+        self.multi_step_transition_valid = bool(
+            result.get("step_transition_valid")
+        )
+        self.multi_step_runtime_integrity_valid = bool(
+            result.get("runtime_integrity_valid")
+        )
+        self.multi_step_governance_alignment_valid = bool(
+            result.get("governance_alignment_valid")
+        )
+        self.multi_step_execution_continuity_valid = bool(
+            result.get("execution_continuity_valid")
+        )
+        self.multi_step_operational_stability_valid = bool(
+            result.get("operational_stability_valid")
+        )
+        self.multi_step_workflow_integrity_preserved = bool(
+            result.get("workflow_integrity_preserved")
+        )
+        self.multi_step_execution_traceability_preserved = bool(
+            result.get("execution_traceability_preserved")
+        )
+        self.multi_step_workflow_progression = result.get(
+            "workflow_progression"
+        )
+        self.multi_step_execution_order = [
+            str(item) for item in (result.get("execution_order") or [])
+        ]
+        self.multi_step_completed_steps = [
+            str(item) for item in (result.get("completed_steps") or [])
+        ]
+        self.multi_step_pending_steps = [
+            str(item) for item in (result.get("pending_steps") or [])
+        ]
+        self.multi_step_invalid_steps = [
+            str(item) for item in (result.get("invalid_steps") or [])
+        ]
+        self.multi_step_blocking_conditions = [
+            str(item) for item in (result.get("blocking_conditions") or [])
+        ]
+        self.multi_step_human_visibility_payload = dict(
+            result.get("human_visibility_payload") or {}
+        )
+        self.multi_step_control_lifecycle = [
+            dict(entry)
+            for entry in (result.get("control_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.multi_step_execution_control_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.multi_step_execution_control_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.multi_step_execution_control_last_error = result.get("error")
+        self.multi_step_execution_control_metadata = dict(
+            result.get("metadata") or {}
+        )
+
+        if self.multi_step_execution_control_status == "advanced":
+            self.multi_step_controls_advanced += 1
+        elif self.multi_step_execution_control_status == "completed":
+            self.multi_step_controls_completed += 1
+        elif self.multi_step_execution_control_status == "blocked":
+            self.multi_step_controls_blocked += 1
+        else:
+            self.multi_step_execution_control_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -10441,6 +10565,77 @@ class RuntimeStatus:
             "metadata": dict(self.workflow_execution_engine_metadata),
         }
 
+    def multi_step_execution_control_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_multi_step_execution_control_at": fmt(
+                self.last_multi_step_execution_control_at
+            ),
+            "multi_step_execution_control_iteration": (
+                self.multi_step_execution_control_iteration
+            ),
+            "multi_step_execution_control_status": (
+                self.multi_step_execution_control_status
+            ),
+            "multi_step_controls_advanced": self.multi_step_controls_advanced,
+            "multi_step_controls_completed": self.multi_step_controls_completed,
+            "multi_step_controls_blocked": self.multi_step_controls_blocked,
+            "multi_step_execution_control_errors": (
+                self.multi_step_execution_control_errors
+            ),
+            "control_id": self.multi_step_control_id,
+            "workflow_id": self.multi_step_workflow_id,
+            "current_step": self.multi_step_current_step,
+            "next_step": self.multi_step_next_step,
+            "expected_next_step": self.multi_step_expected_next_step,
+            "continuation_status": self.multi_step_continuation_status,
+            "governance_status": self.multi_step_governance_status,
+            "checkpoint_status": self.multi_step_checkpoint_status,
+            "workflow_consistency_valid": (
+                self.multi_step_workflow_consistency_valid
+            ),
+            "execution_sequencing_valid": (
+                self.multi_step_execution_sequencing_valid
+            ),
+            "step_transition_valid": self.multi_step_transition_valid,
+            "runtime_integrity_valid": (
+                self.multi_step_runtime_integrity_valid
+            ),
+            "governance_alignment_valid": (
+                self.multi_step_governance_alignment_valid
+            ),
+            "execution_continuity_valid": (
+                self.multi_step_execution_continuity_valid
+            ),
+            "operational_stability_valid": (
+                self.multi_step_operational_stability_valid
+            ),
+            "workflow_integrity_preserved": (
+                self.multi_step_workflow_integrity_preserved
+            ),
+            "execution_traceability_preserved": (
+                self.multi_step_execution_traceability_preserved
+            ),
+            "workflow_progression": self.multi_step_workflow_progression,
+            "execution_order": list(self.multi_step_execution_order),
+            "completed_steps": list(self.multi_step_completed_steps),
+            "pending_steps": list(self.multi_step_pending_steps),
+            "invalid_steps": list(self.multi_step_invalid_steps),
+            "blocking_conditions": list(self.multi_step_blocking_conditions),
+            "human_visibility_payload": dict(
+                self.multi_step_human_visibility_payload
+            ),
+            "control_lifecycle": [
+                dict(entry) for entry in self.multi_step_control_lifecycle
+            ],
+            "duration_ms": self.multi_step_execution_control_duration_ms,
+            "reasons": list(self.multi_step_execution_control_reasons),
+            "last_error": self.multi_step_execution_control_last_error,
+            "metadata": dict(self.multi_step_execution_control_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -10695,6 +10890,9 @@ class RuntimeStatus:
             ),
             "workflow_execution_engine": (
                 self.workflow_execution_engine_metrics()
+            ),
+            "multi_step_execution_control": (
+                self.multi_step_execution_control_metrics()
             ),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
