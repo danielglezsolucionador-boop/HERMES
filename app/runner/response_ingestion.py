@@ -20,6 +20,11 @@ from app.runner.task_execution import (
     EXECUTION_STATE_EXECUTING,
     ExecutionContext,
 )
+from app.runner.response_validation import (
+    ResponseValidationRequest,
+    ResponseValidationResult,
+    ResponseValidationRuntime,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +88,10 @@ class ResponseIngestionResult:
     active_ingestions: int = 0
     max_concurrent_ingestions: int = 0
     max_ingestion_duration_ms: int = 0
+    validation_id: str | None = None
+    validation_status: str | None = None
+    validation_state: str | None = None
+    validation_duration_ms: int = 0
     runtime_ingestion_load: float | None = None
     max_runtime_ingestion_load: float = 0.0
     storage_prepared: bool = False
@@ -114,6 +123,10 @@ class ResponseIngestionResult:
             "active_ingestions": self.active_ingestions,
             "max_concurrent_ingestions": self.max_concurrent_ingestions,
             "max_ingestion_duration_ms": self.max_ingestion_duration_ms,
+            "validation_id": self.validation_id,
+            "validation_status": self.validation_status,
+            "validation_state": self.validation_state,
+            "validation_duration_ms": self.validation_duration_ms,
             "runtime_ingestion_load": self.runtime_ingestion_load,
             "max_runtime_ingestion_load": self.max_runtime_ingestion_load,
             "storage_prepared": self.storage_prepared,
@@ -137,6 +150,8 @@ class ResponseIngestionRuntime:
         max_runtime_ingestion_load: float = (
             settings.RESPONSE_INGESTION_MAX_RUNTIME_LOAD
         ),
+        validation_enabled: bool = settings.RESPONSE_VALIDATION_ENABLED,
+        response_validator: ResponseValidationRuntime | None = None,
     ) -> None:
         self.max_response_bytes = max(1, int(max_response_bytes or 1))
         self.max_ingestion_duration_ms = max(
@@ -151,6 +166,8 @@ class ResponseIngestionRuntime:
             0.0,
             float(max_runtime_ingestion_load or 0.0),
         )
+        self.validation_enabled = bool(validation_enabled)
+        self.response_validator = response_validator or ResponseValidationRuntime()
         self._active_ingestions = 0
 
     def ingest(
@@ -166,6 +183,34 @@ class ResponseIngestionRuntime:
         try:
             response = self._as_dict(request.response)
             content = self._content(request.response, response)
+            validation_result: ResponseValidationResult | None = None
+            if self.validation_enabled:
+                validation_result = self.response_validator.validate(
+                    ResponseValidationRequest(
+                        response=request.response,
+                        execution=request.execution,
+                        provider_id=request.provider_id,
+                        metadata=request.metadata,
+                    ),
+                    runtime_active=runtime_active,
+                    validation_permitted=ingestion_permitted,
+                )
+                if validation_result.status != "validated":
+                    result = self._result(
+                        "rejected",
+                        False,
+                        "validation_rejected",
+                        request=request,
+                        response=response,
+                        content=content,
+                        validation_result=validation_result,
+                        reasons=list(validation_result.reasons),
+                        error=validation_result.error,
+                        started=started,
+                        started_at=started_at,
+                    )
+                    self._log_result(result)
+                    return result
             reasons = self._reception_reasons(
                 request=request,
                 response=response,
@@ -199,6 +244,7 @@ class ResponseIngestionRuntime:
                     response=response,
                     content=content,
                     context=context,
+                    validation_result=validation_result,
                     storage_prepared=True,
                     started=started,
                     started_at=started_at,
@@ -325,6 +371,7 @@ class ResponseIngestionRuntime:
         response: dict[str, Any] | None = None,
         content: str | None = None,
         context: ResponseIngestionContext | None = None,
+        validation_result: ResponseValidationResult | None = None,
         storage_prepared: bool = False,
         reasons: list[str] | None = None,
         error: str | None = None,
@@ -388,14 +435,34 @@ class ResponseIngestionRuntime:
             active_ingestions=self._active_ingestions,
             max_concurrent_ingestions=self.max_concurrent_ingestions,
             max_ingestion_duration_ms=self.max_ingestion_duration_ms,
+            validation_id=(
+                validation_result.validation_id if validation_result else None
+            ),
+            validation_status=(
+                validation_result.status if validation_result else None
+            ),
+            validation_state=(
+                validation_result.validation_state if validation_result else None
+            ),
+            validation_duration_ms=(
+                validation_result.validation_duration_ms if validation_result else 0
+            ),
             runtime_ingestion_load=self._runtime_ingestion_load(),
             max_runtime_ingestion_load=self.max_runtime_ingestion_load,
             storage_prepared=storage_prepared,
-            metadata=dict(request.metadata) if request else {},
+            metadata=self._metadata(request),
             reasons=tuple(reasons or []),
             error=error,
             context=context,
         )
+
+    def _metadata(
+        self,
+        request: ResponseIngestionRequest | None,
+    ) -> dict[str, Any]:
+        if request is None or not isinstance(request.metadata, dict):
+            return {}
+        return dict(request.metadata)
 
     def _as_dict(self, value: Any) -> dict[str, Any]:
         if value is None:

@@ -250,6 +250,39 @@ class RuntimeStatus:
         self.response_storage_prepared = False
         self.response_ingestion_metadata: dict = {}
         self.response_ingestion_reasons: list[str] = []
+        self.response_validation_started_at: datetime | None = None
+        self.last_response_validation_at: datetime | None = None
+        self.response_validation_iteration = 0
+        self.response_validation_enabled = False
+        self.response_validation_status = "stopped"
+        self.response_validation_state: str | None = None
+        self.response_validation_interval_seconds = 0.0
+        self.response_validation_last_duration_ms = 0
+        self.response_validation_errors = 0
+        self.response_validation_last_error: str | None = None
+        self.responses_validated = 0
+        self.responses_validation_rejected = 0
+        self.responses_validation_failed = 0
+        self.active_response_validations = 0
+        self.max_concurrent_response_validations = 0
+        self.max_response_validation_payload_bytes = 0
+        self.response_validation_payload_size_bytes = 0
+        self.max_response_validation_duration_ms = 0
+        self.response_validation_runtime_load: float | None = None
+        self.max_response_validation_runtime_load = 0.0
+        self.last_validation_id: str | None = None
+        self.last_validation_execution_id: str | None = None
+        self.last_validation_task_id: str | None = None
+        self.last_validation_runtime_id: str | None = None
+        self.last_validation_execution_owner: str | None = None
+        self.last_validation_provider_source: str | None = None
+        self.last_validation_provider_request_id: str | None = None
+        self.last_validation_model: str | None = None
+        self.last_validation_validated_at: str | None = None
+        self.last_validation_started_at: str | None = None
+        self.last_validation_finished_at: str | None = None
+        self.response_validation_metadata: dict = {}
+        self.response_validation_reasons: list[str] = []
         self.runtime_safe = True
         self.consecutive_errors = 0
         self.degraded_state = False
@@ -379,6 +412,7 @@ class RuntimeStatus:
         self.execution_safety_status = "stopped"
         self.provider_bridge_status = "stopped"
         self.response_ingestion_status = "stopped"
+        self.response_validation_status = "stopped"
 
     def configure_safety_event_limit(self, limit: int) -> None:
         self.safety_event_limit = max(1, int(limit or 1))
@@ -1107,6 +1141,116 @@ class RuntimeStatus:
             error or "unknown_response_ingestion_error"
         )
 
+    def mark_response_validation_started(
+        self,
+        enabled: bool,
+        interval_seconds: float,
+        max_concurrent_validations: int = 0,
+        max_payload_inspection_bytes: int = 0,
+        max_validation_duration_ms: int = 0,
+        max_runtime_validation_load: float = 0.0,
+    ) -> None:
+        self.response_validation_started_at = datetime.now(timezone.utc)
+        self.response_validation_enabled = bool(enabled)
+        self.response_validation_status = "active" if enabled else "disabled"
+        self.response_validation_state = "ready" if enabled else "disabled"
+        self.response_validation_interval_seconds = interval_seconds
+        self.max_concurrent_response_validations = max(
+            0,
+            int(max_concurrent_validations or 0),
+        )
+        self.max_response_validation_payload_bytes = max(
+            0,
+            int(max_payload_inspection_bytes or 0),
+        )
+        self.max_response_validation_duration_ms = max(
+            0,
+            int(max_validation_duration_ms or 0),
+        )
+        self.max_response_validation_runtime_load = max(
+            0.0,
+            float(max_runtime_validation_load or 0.0),
+        )
+        self.response_validation_last_error = None
+
+    def mark_response_validation_result(self, result: dict) -> None:
+        self.last_response_validation_at = datetime.now(timezone.utc)
+        self.response_validation_iteration += 1
+        self.response_validation_status = result.get("status") or "unknown"
+        self.response_validation_state = result.get("validation_state")
+        self.response_validation_last_duration_ms = max(
+            0,
+            int(result.get("validation_duration_ms") or result.get("duration_ms") or 0),
+        )
+        self.active_response_validations = max(
+            0,
+            int(result.get("active_validations") or 0),
+        )
+        self.max_concurrent_response_validations = max(
+            0,
+            int(result.get("max_concurrent_validations") or 0),
+        )
+        self.max_response_validation_payload_bytes = max(
+            0,
+            int(result.get("max_payload_inspection_bytes") or 0),
+        )
+        self.response_validation_payload_size_bytes = max(
+            0,
+            int(result.get("payload_size_bytes") or 0),
+        )
+        self.max_response_validation_duration_ms = max(
+            0,
+            int(result.get("max_validation_duration_ms") or 0),
+        )
+        runtime_load = result.get("runtime_validation_load")
+        self.response_validation_runtime_load = (
+            float(runtime_load) if runtime_load is not None else None
+        )
+        self.max_response_validation_runtime_load = max(
+            0.0,
+            float(result.get("max_runtime_validation_load") or 0.0),
+        )
+        self.last_validation_id = result.get("validation_id")
+        self.last_validation_execution_id = result.get("execution_id")
+        self.last_validation_task_id = result.get("task_id")
+        self.last_validation_runtime_id = result.get("runtime_id")
+        self.last_validation_execution_owner = result.get("execution_owner")
+        self.last_validation_provider_source = result.get("provider_source")
+        self.last_validation_provider_request_id = result.get("provider_request_id")
+        self.last_validation_model = result.get("model")
+        self.last_validation_validated_at = result.get("validated_at")
+        self.last_validation_started_at = result.get("started_at")
+        self.last_validation_finished_at = result.get("finished_at")
+        self.response_validation_metadata = dict(result.get("metadata") or {})
+        self.response_validation_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.response_validation_last_error = result.get("error")
+
+        if self.response_validation_status == "validated":
+            self.responses_validated += 1
+        elif self.response_validation_status == "rejected":
+            self.responses_validation_rejected += 1
+        elif self.response_validation_status == "error":
+            self.responses_validation_failed += 1
+            self.response_validation_errors += 1
+
+    def mark_response_validation_error(
+        self,
+        error: str,
+        duration_ms: int = 0,
+    ) -> None:
+        self.last_response_validation_at = datetime.now(timezone.utc)
+        self.response_validation_iteration += 1
+        self.response_validation_last_duration_ms = max(0, int(duration_ms or 0))
+        self.response_validation_errors += 1
+        self.responses_validation_failed += 1
+        self.response_validation_status = "error"
+        self.response_validation_state = "error"
+        self.response_validation_last_error = (
+            error or "unknown_response_validation_error"
+        )
+
     def ai_metrics(self) -> dict:
         avg_duration = 0
         avg_provider = 0
@@ -1490,6 +1634,58 @@ class RuntimeStatus:
             "reasons": list(self.response_ingestion_reasons),
         }
 
+    def response_validation_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "started_at": fmt(self.response_validation_started_at),
+            "last_response_validation_at": fmt(self.last_response_validation_at),
+            "response_validation_iteration": self.response_validation_iteration,
+            "response_validation_enabled": self.response_validation_enabled,
+            "response_validation_status": self.response_validation_status,
+            "validation_state": self.response_validation_state,
+            "response_validation_interval_seconds": (
+                self.response_validation_interval_seconds
+            ),
+            "response_validation_last_duration_ms": (
+                self.response_validation_last_duration_ms
+            ),
+            "response_validation_errors": self.response_validation_errors,
+            "response_validation_last_error": self.response_validation_last_error,
+            "responses_validated": self.responses_validated,
+            "responses_rejected": self.responses_validation_rejected,
+            "responses_failed": self.responses_validation_failed,
+            "active_validations": self.active_response_validations,
+            "max_concurrent_validations": (
+                self.max_concurrent_response_validations
+            ),
+            "max_payload_inspection_bytes": (
+                self.max_response_validation_payload_bytes
+            ),
+            "payload_size_bytes": self.response_validation_payload_size_bytes,
+            "max_validation_duration_ms": (
+                self.max_response_validation_duration_ms
+            ),
+            "runtime_validation_load": self.response_validation_runtime_load,
+            "max_runtime_validation_load": (
+                self.max_response_validation_runtime_load
+            ),
+            "validation_id": self.last_validation_id,
+            "execution_id": self.last_validation_execution_id,
+            "task_id": self.last_validation_task_id,
+            "runtime_id": self.last_validation_runtime_id,
+            "execution_owner": self.last_validation_execution_owner,
+            "provider_source": self.last_validation_provider_source,
+            "provider_request_id": self.last_validation_provider_request_id,
+            "model": self.last_validation_model,
+            "validated_at": self.last_validation_validated_at,
+            "started_at_validation": self.last_validation_started_at,
+            "finished_at_validation": self.last_validation_finished_at,
+            "metadata": dict(self.response_validation_metadata),
+            "reasons": list(self.response_validation_reasons),
+        }
+
     def to_dict(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -1515,6 +1711,7 @@ class RuntimeStatus:
             "execution_safety": self.execution_safety_metrics(),
             "provider_bridge": self.provider_bridge_metrics(),
             "response_ingestion": self.response_ingestion_metrics(),
+            "response_validation": self.response_validation_metrics(),
             "safety": self.safety_metrics(),
         }
         data.update(self.ai_metrics())

@@ -94,6 +94,8 @@ def test_response_ingestion_receives_response_and_preserves_context():
     assert result.execution_owner == execution.runtime_owner
     assert result.provider_source == "fake"
     assert result.provider_request_id == "provider-request-1"
+    assert result.validation_status == "validated"
+    assert result.validation_state == "accepted"
     assert result.storage_prepared is True
     assert result.metadata["source"] == "unit-test"
     assert runtime.visibility()["active_ingestions"] == 0
@@ -153,6 +155,23 @@ def test_response_ingestion_rejects_provider_failure_response():
     assert result.status == "rejected"
     assert "provider_response_not_completed" in result.reasons
     assert "empty_response_content" in result.reasons
+
+
+def test_response_ingestion_rejects_validation_failures_before_storage_preparation():
+    execution = _execution_context()
+    response = _provider_response(execution)
+    response = replace(response, finished_at="not-a-timestamp")
+    runtime = ResponseIngestionRuntime()
+
+    result = runtime.ingest(
+        ResponseIngestionRequest(response=response, execution=execution)
+    )
+
+    assert result.status == "rejected"
+    assert result.ingestion_state == "validation_rejected"
+    assert result.validation_status == "rejected"
+    assert "invalid_finished_at" in result.reasons
+    assert result.storage_prepared is False
 
 
 def test_response_ingestion_enforces_response_size_and_concurrency():

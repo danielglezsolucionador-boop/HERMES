@@ -3,8 +3,8 @@ Runtime loop foundation for Hermes.
 
 This loop maintains runtime heartbeat and lifecycle state. Task claiming is
 controlled and disabled by default. It never executes or retries tasks.
-Execution, provider bridge, and response ingestion foundations are initialized
-for observability but do not run autonomous work.
+Execution, provider bridge, response ingestion, and response validation
+foundations are initialized for observability but do not run autonomous work.
 """
 import asyncio
 import logging
@@ -19,6 +19,7 @@ from app.models.task import Task
 from app.runner.pickup_safety import PickupSafety, PickupSafetyResult
 from app.runner.execution_safety import ExecutionSafety, ExecutionSafetyResult
 from app.runner.response_ingestion import ResponseIngestionRuntime
+from app.runner.response_validation import ResponseValidationRuntime
 from app.runner.task_claiming import TaskClaiming, TaskClaimingResult
 from app.runner.task_discovery import TaskDiscovery, TaskDiscoveryResult
 from app.schemas.task import TaskStatus
@@ -49,6 +50,7 @@ class RuntimeLoop:
         execution_safety_enabled: bool = settings.TASK_EXECUTION_SAFETY_ENABLED,
         provider_bridge_enabled: bool = settings.PROVIDER_BRIDGE_ENABLED,
         response_ingestion_enabled: bool = settings.RESPONSE_INGESTION_ENABLED,
+        response_validation_enabled: bool = settings.RESPONSE_VALIDATION_ENABLED,
         degraded_error_threshold: int = settings.RUNTIME_LOOP_DEGRADED_ERROR_THRESHOLD,
         max_consecutive_errors: int = settings.RUNTIME_LOOP_MAX_CONSECUTIVE_ERRORS,
         safety_event_limit: int = settings.RUNTIME_LOOP_SAFETY_EVENT_LIMIT,
@@ -79,6 +81,8 @@ class RuntimeLoop:
         self.provider_bridge_enabled = bool(provider_bridge_enabled)
         self.response_ingestion_enabled = bool(response_ingestion_enabled)
         self.response_ingestion = ResponseIngestionRuntime()
+        self.response_validation_enabled = bool(response_validation_enabled)
+        self.response_validation = ResponseValidationRuntime()
         self.degraded_error_threshold = max(1, int(degraded_error_threshold))
         self.max_consecutive_errors = max(
             self.degraded_error_threshold,
@@ -237,6 +241,20 @@ class RuntimeLoop:
                 settings.RESPONSE_INGESTION_MAX_RUNTIME_LOAD
             ),
         )
+        self.status.mark_response_validation_started(
+            enabled=self.response_validation_enabled,
+            interval_seconds=self.interval_seconds,
+            max_concurrent_validations=(
+                settings.RESPONSE_VALIDATION_MAX_CONCURRENT_VALIDATIONS
+            ),
+            max_payload_inspection_bytes=(
+                settings.RESPONSE_VALIDATION_MAX_PAYLOAD_BYTES
+            ),
+            max_validation_duration_ms=settings.RESPONSE_VALIDATION_MAX_DURATION_MS,
+            max_runtime_validation_load=(
+                settings.RESPONSE_VALIDATION_MAX_RUNTIME_LOAD
+            ),
+        )
         logger.info(
             "runtime_loop: started interval_seconds=%s",
             self.interval_seconds,
@@ -266,6 +284,10 @@ class RuntimeLoop:
         logger.info(
             "runtime_loop: response ingestion %s",
             "enabled" if self.response_ingestion_enabled else "disabled",
+        )
+        logger.info(
+            "runtime_loop: response validation %s",
+            "enabled" if self.response_validation_enabled else "disabled",
         )
 
         stop_reason = "stopped"
@@ -300,6 +322,11 @@ class RuntimeLoop:
                         self.status.mark_provider_bridge_error(str(exc), poll_duration_ms)
                     if self.response_ingestion_enabled:
                         self.status.mark_response_ingestion_error(
+                            str(exc),
+                            poll_duration_ms,
+                        )
+                    if self.response_validation_enabled:
+                        self.status.mark_response_validation_error(
                             str(exc),
                             poll_duration_ms,
                         )
