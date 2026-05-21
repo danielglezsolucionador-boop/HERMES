@@ -37,6 +37,7 @@ async def runtime_status(session: AsyncSession = Depends(get_session)):
         claiming_metrics = runner_runtime_status.claiming_metrics()
         pickup_safety_metrics = runner_runtime_status.pickup_safety_metrics()
         execution_metrics = runner_runtime_status.execution_metrics()
+        provider_bridge_metrics = runner_runtime_status.provider_bridge_metrics()
         safety_metrics = runner_runtime_status.safety_metrics()
         operational_health = await build_operational_health(session, counts)
 
@@ -60,6 +61,7 @@ async def runtime_status(session: AsyncSession = Depends(get_session)):
             "claiming": claiming_metrics,
             "pickup_safety": pickup_safety_metrics,
             "execution": execution_metrics,
+            "provider_bridge": provider_bridge_metrics,
             "safety": safety_metrics,
             "ai": ai_metrics,
             "telegram": telegram_metrics,

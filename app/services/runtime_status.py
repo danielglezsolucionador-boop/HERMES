@@ -151,6 +151,39 @@ class RuntimeStatus:
         self.last_execution_duration_ms = 0
         self.execution_runtime_owner: str | None = None
         self.execution_reasons: list[str] = []
+        self.provider_bridge_started_at: datetime | None = None
+        self.last_provider_bridge_at: datetime | None = None
+        self.provider_bridge_iteration = 0
+        self.provider_bridge_enabled = False
+        self.provider_bridge_status = "stopped"
+        self.provider_bridge_interval_seconds = 0.0
+        self.provider_bridge_last_duration_ms = 0
+        self.provider_bridge_errors = 0
+        self.provider_bridge_last_error: str | None = None
+        self.provider_requests_completed = 0
+        self.provider_requests_rejected = 0
+        self.provider_requests_failed = 0
+        self.provider_timeouts = 0
+        self.provider_invalid_responses = 0
+        self.active_provider_calls = 0
+        self.max_concurrent_provider_calls = 0
+        self.max_provider_requests_per_minute = 0
+        self.provider_requests_in_window = 0
+        self.max_provider_request_bytes = 0
+        self.provider_request_size_bytes = 0
+        self.provider_timeout_seconds = 0.0
+        self.max_provider_response_bytes = 0
+        self.provider_response_size_bytes = 0
+        self.provider_name: str | None = None
+        self.provider_model: str | None = None
+        self.provider_request_id: str | None = None
+        self.provider_execution_id: str | None = None
+        self.provider_task_id: str | None = None
+        self.provider_started_at: str | None = None
+        self.provider_finished_at: str | None = None
+        self.provider_duration_ms = 0
+        self.provider_usage: dict = {}
+        self.provider_bridge_reasons: list[str] = []
         self.runtime_safe = True
         self.consecutive_errors = 0
         self.degraded_state = False
@@ -277,6 +310,7 @@ class RuntimeStatus:
         self.claiming_status = "stopped"
         self.pickup_safety_status = "stopped"
         self.execution_status = "stopped"
+        self.provider_bridge_status = "stopped"
 
     def configure_safety_event_limit(self, limit: int) -> None:
         self.safety_event_limit = max(1, int(limit or 1))
@@ -675,6 +709,113 @@ class RuntimeStatus:
         self.execution_status = "error"
         self.execution_last_error = error or "unknown_execution_error"
 
+    def mark_provider_bridge_started(
+        self,
+        enabled: bool,
+        interval_seconds: float,
+        max_concurrent_calls: int = 0,
+        max_requests_per_minute: int = 0,
+        max_request_bytes: int = 0,
+        timeout_seconds: float = 0.0,
+        max_response_bytes: int = 0,
+    ) -> None:
+        self.provider_bridge_started_at = datetime.now(timezone.utc)
+        self.provider_bridge_enabled = bool(enabled)
+        self.provider_bridge_status = "active" if enabled else "disabled"
+        self.provider_bridge_interval_seconds = interval_seconds
+        self.max_concurrent_provider_calls = max(0, int(max_concurrent_calls or 0))
+        self.max_provider_requests_per_minute = max(
+            0,
+            int(max_requests_per_minute or 0),
+        )
+        self.max_provider_request_bytes = max(0, int(max_request_bytes or 0))
+        self.provider_timeout_seconds = max(0.0, float(timeout_seconds or 0.0))
+        self.max_provider_response_bytes = max(0, int(max_response_bytes or 0))
+        self.provider_bridge_last_error = None
+
+    def mark_provider_bridge_result(self, result: dict) -> None:
+        self.last_provider_bridge_at = datetime.now(timezone.utc)
+        self.provider_bridge_iteration += 1
+        self.provider_bridge_status = result.get("status") or "unknown"
+        self.provider_bridge_last_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.active_provider_calls = max(
+            0,
+            int(result.get("active_provider_calls") or 0),
+        )
+        self.max_concurrent_provider_calls = max(
+            0,
+            int(result.get("max_concurrent_provider_calls") or 0),
+        )
+        self.max_provider_requests_per_minute = max(
+            0,
+            int(result.get("max_requests_per_minute") or 0),
+        )
+        self.provider_requests_in_window = max(
+            0,
+            int(result.get("requests_in_window") or 0),
+        )
+        self.max_provider_request_bytes = max(
+            0,
+            int(result.get("max_request_bytes") or 0),
+        )
+        self.provider_request_size_bytes = max(
+            0,
+            int(result.get("request_size_bytes") or 0),
+        )
+        self.provider_timeout_seconds = max(
+            0.0,
+            float(result.get("timeout_seconds") or 0.0),
+        )
+        self.max_provider_response_bytes = max(
+            0,
+            int(result.get("max_response_bytes") or 0),
+        )
+        self.provider_response_size_bytes = max(
+            0,
+            int(result.get("response_size_bytes") or 0),
+        )
+        self.provider_name = result.get("provider_name")
+        self.provider_model = result.get("model")
+        self.provider_request_id = result.get("request_id")
+        self.provider_execution_id = result.get("execution_id")
+        self.provider_task_id = result.get("task_id")
+        self.provider_started_at = result.get("started_at")
+        self.provider_finished_at = result.get("finished_at")
+        self.provider_duration_ms = max(
+            0,
+            int(result.get("provider_duration_ms") or 0),
+        )
+        self.provider_usage = dict(result.get("usage") or {})
+        self.provider_bridge_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.provider_bridge_last_error = result.get("error")
+
+        if self.provider_bridge_status == "completed":
+            self.provider_requests_completed += 1
+        elif self.provider_bridge_status == "rejected":
+            self.provider_requests_rejected += 1
+        elif self.provider_bridge_status == "timeout":
+            self.provider_timeouts += 1
+            self.provider_requests_failed += 1
+        elif self.provider_bridge_status == "invalid_response":
+            self.provider_invalid_responses += 1
+            self.provider_requests_failed += 1
+        elif self.provider_bridge_status in {"error", "provider_error"}:
+            self.provider_requests_failed += 1
+            self.provider_bridge_errors += 1
+
+    def mark_provider_bridge_error(self, error: str, duration_ms: int = 0) -> None:
+        self.last_provider_bridge_at = datetime.now(timezone.utc)
+        self.provider_bridge_iteration += 1
+        self.provider_bridge_last_duration_ms = max(0, int(duration_ms or 0))
+        self.provider_bridge_errors += 1
+        self.provider_bridge_status = "error"
+        self.provider_bridge_last_error = error or "unknown_provider_bridge_error"
+
     def ai_metrics(self) -> dict:
         avg_duration = 0
         avg_provider = 0
@@ -920,6 +1061,46 @@ class RuntimeStatus:
             "reasons": list(self.execution_reasons),
         }
 
+    def provider_bridge_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "started_at": fmt(self.provider_bridge_started_at),
+            "last_provider_bridge_at": fmt(self.last_provider_bridge_at),
+            "provider_bridge_iteration": self.provider_bridge_iteration,
+            "provider_bridge_enabled": self.provider_bridge_enabled,
+            "provider_bridge_status": self.provider_bridge_status,
+            "provider_bridge_interval_seconds": self.provider_bridge_interval_seconds,
+            "provider_bridge_last_duration_ms": self.provider_bridge_last_duration_ms,
+            "provider_bridge_errors": self.provider_bridge_errors,
+            "provider_bridge_last_error": self.provider_bridge_last_error,
+            "provider_requests_completed": self.provider_requests_completed,
+            "provider_requests_rejected": self.provider_requests_rejected,
+            "provider_requests_failed": self.provider_requests_failed,
+            "provider_timeouts": self.provider_timeouts,
+            "provider_invalid_responses": self.provider_invalid_responses,
+            "active_provider_calls": self.active_provider_calls,
+            "max_concurrent_provider_calls": self.max_concurrent_provider_calls,
+            "max_requests_per_minute": self.max_provider_requests_per_minute,
+            "requests_in_window": self.provider_requests_in_window,
+            "max_request_bytes": self.max_provider_request_bytes,
+            "request_size_bytes": self.provider_request_size_bytes,
+            "timeout_seconds": self.provider_timeout_seconds,
+            "max_response_bytes": self.max_provider_response_bytes,
+            "response_size_bytes": self.provider_response_size_bytes,
+            "provider_name": self.provider_name,
+            "model": self.provider_model,
+            "request_id": self.provider_request_id,
+            "execution_id": self.provider_execution_id,
+            "task_id": self.provider_task_id,
+            "started_request_at": self.provider_started_at,
+            "finished_request_at": self.provider_finished_at,
+            "provider_duration_ms": self.provider_duration_ms,
+            "usage": dict(self.provider_usage),
+            "reasons": list(self.provider_bridge_reasons),
+        }
+
     def to_dict(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -942,6 +1123,7 @@ class RuntimeStatus:
             "claiming": self.claiming_metrics(),
             "pickup_safety": self.pickup_safety_metrics(),
             "execution": self.execution_metrics(),
+            "provider_bridge": self.provider_bridge_metrics(),
             "safety": self.safety_metrics(),
         }
         data.update(self.ai_metrics())

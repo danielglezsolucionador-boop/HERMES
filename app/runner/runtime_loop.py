@@ -4,7 +4,8 @@ Runtime loop foundation for Hermes.
 This loop maintains runtime heartbeat and lifecycle state.
 Task claiming is controlled and disabled by default. It never executes
 or retries tasks. Execution foundation is initialized for observability
-but does not run autonomous work.
+but does not run autonomous work. Provider bridge is initialized for
+observability but does not send autonomous provider requests.
 """
 import asyncio
 import logging
@@ -43,6 +44,7 @@ class RuntimeLoop:
         claiming_enabled: bool = settings.TASK_CLAIMING_ENABLED,
         pickup_safety_enabled: bool = settings.TASK_PICKUP_SAFETY_ENABLED,
         execution_enabled: bool = settings.TASK_EXECUTION_ENABLED,
+        provider_bridge_enabled: bool = settings.PROVIDER_BRIDGE_ENABLED,
         degraded_error_threshold: int = settings.RUNTIME_LOOP_DEGRADED_ERROR_THRESHOLD,
         max_consecutive_errors: int = settings.RUNTIME_LOOP_MAX_CONSECUTIVE_ERRORS,
         safety_event_limit: int = settings.RUNTIME_LOOP_SAFETY_EVENT_LIMIT,
@@ -68,6 +70,7 @@ class RuntimeLoop:
         )
         self.pickup_safety = pickup_safety or PickupSafety().inspect
         self.execution_enabled = bool(execution_enabled)
+        self.provider_bridge_enabled = bool(provider_bridge_enabled)
         self.degraded_error_threshold = max(1, int(degraded_error_threshold))
         self.max_consecutive_errors = max(
             self.degraded_error_threshold,
@@ -190,6 +193,15 @@ class RuntimeLoop:
             max_memory_mb=settings.TASK_EXECUTION_MAX_MEMORY_MB,
             runtime_owner=f"{settings.RUNNER_ID}:{settings.RUNTIME_ID}",
         )
+        self.status.mark_provider_bridge_started(
+            enabled=self.provider_bridge_enabled,
+            interval_seconds=self.interval_seconds,
+            max_concurrent_calls=settings.PROVIDER_BRIDGE_MAX_CONCURRENT_CALLS,
+            max_requests_per_minute=settings.PROVIDER_BRIDGE_MAX_REQUESTS_PER_MINUTE,
+            max_request_bytes=settings.PROVIDER_BRIDGE_MAX_REQUEST_BYTES,
+            timeout_seconds=settings.PROVIDER_BRIDGE_TIMEOUT_SECONDS,
+            max_response_bytes=settings.PROVIDER_BRIDGE_MAX_RESPONSE_BYTES,
+        )
         logger.info(
             "runtime_loop: started interval_seconds=%s",
             self.interval_seconds,
@@ -207,6 +219,10 @@ class RuntimeLoop:
         logger.info(
             "runtime_loop: execution foundation %s",
             "enabled" if self.execution_enabled else "disabled",
+        )
+        logger.info(
+            "runtime_loop: provider bridge %s",
+            "enabled" if self.provider_bridge_enabled else "disabled",
         )
 
         stop_reason = "stopped"
@@ -235,6 +251,8 @@ class RuntimeLoop:
                         self.status.mark_task_claiming_error(str(exc), poll_duration_ms)
                     if self.execution_enabled:
                         self.status.mark_task_execution_error(str(exc), poll_duration_ms)
+                    if self.provider_bridge_enabled:
+                        self.status.mark_provider_bridge_error(str(exc), poll_duration_ms)
                     self.status.mark_polling_error(str(exc), poll_duration_ms)
                     safety = self.status.mark_runtime_loop_error(
                         str(exc),

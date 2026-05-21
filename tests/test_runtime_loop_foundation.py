@@ -263,6 +263,34 @@ async def test_runtime_loop_initializes_execution_foundation_metrics():
 
 
 @pytest.mark.asyncio
+async def test_runtime_loop_initializes_provider_bridge_metrics():
+    async def two_discovered_tasks() -> TaskDiscoveryResult:
+        return TaskDiscoveryResult.from_count(2)
+
+    status = RuntimeStatus()
+    loop = RuntimeLoop(
+        status=status,
+        interval_seconds=0.01,
+        min_interval_seconds=0.01,
+        heartbeat_log_every=1000,
+        task_discovery=two_discovered_tasks,
+        provider_bridge_enabled=True,
+    )
+
+    task = asyncio.create_task(loop.run())
+    await asyncio.sleep(0.03)
+    provider_bridge = status.provider_bridge_metrics()
+    loop.request_stop("test_stop")
+    await asyncio.wait_for(task, timeout=1)
+
+    assert provider_bridge["provider_bridge_enabled"] is True
+    assert provider_bridge["provider_bridge_status"] == "active"
+    assert provider_bridge["provider_requests_completed"] == 0
+    assert provider_bridge["active_provider_calls"] == 0
+    assert provider_bridge["max_concurrent_provider_calls"] == 1
+
+
+@pytest.mark.asyncio
 async def test_runtime_loop_blocks_claiming_when_pickup_safety_blocks():
     async def two_discovered_tasks() -> TaskDiscoveryResult:
         return TaskDiscoveryResult.from_count(2)
