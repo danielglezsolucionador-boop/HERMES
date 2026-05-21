@@ -1475,6 +1475,38 @@ class RuntimeStatus:
         self.vulcan_execution_handoff_reasons: list[str] = []
         self.vulcan_execution_handoff_last_error: str | None = None
         self.vulcan_execution_handoff_metadata: dict = {}
+        self.last_vulcan_operational_validation_at: datetime | None = None
+        self.vulcan_operational_validation_iteration = 0
+        self.vulcan_operational_validation_status = "stopped"
+        self.vulcan_operational_validation_validated = 0
+        self.vulcan_operational_validation_blocked = 0
+        self.vulcan_operational_validation_errors = 0
+        self.vulcan_operational_validation_id: str | None = None
+        self.vulcan_operational_validation_subphase_id: str | None = None
+        self.vulcan_operational_validation_modified_files: list[str] = []
+        self.vulcan_operational_validations_executed: list[str] = []
+        self.vulcan_operational_tests_executed: list[str] = []
+        self.vulcan_operational_blocking_conditions: list[str] = []
+        self.vulcan_runtime_valid = False
+        self.vulcan_imports_valid = False
+        self.vulcan_architecture_valid = False
+        self.vulcan_execution_consistent = False
+        self.vulcan_governance_compliant = False
+        self.vulcan_security_safe = False
+        self.vulcan_blocking_conditions_clear = False
+        self.vulcan_runtime_integrity_preserved = False
+        self.vulcan_architecture_consistency_preserved = False
+        self.vulcan_operational_governance_consistency_preserved = False
+        self.vulcan_operational_continuity_preserved = False
+        self.vulcan_technical_reporting_honest = False
+        self.vulcan_continuation_authorized = False
+        self.vulcan_continuation_status: str | None = None
+        self.vulcan_operational_validation_report_payload: dict = {}
+        self.vulcan_operational_validation_lifecycle: list[dict] = []
+        self.vulcan_operational_validation_duration_ms = 0
+        self.vulcan_operational_validation_reasons: list[str] = []
+        self.vulcan_operational_validation_last_error: str | None = None
+        self.vulcan_operational_validation_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -5506,6 +5538,89 @@ class RuntimeStatus:
         else:
             self.vulcan_execution_handoff_errors += 1
 
+    def mark_vulcan_operational_validation_result(self, result: dict) -> None:
+        self.last_vulcan_operational_validation_at = datetime.now(timezone.utc)
+        self.vulcan_operational_validation_iteration += 1
+        self.vulcan_operational_validation_status = (
+            result.get("status") or "unknown"
+        )
+        self.vulcan_operational_validation_id = result.get("validation_id")
+        self.vulcan_operational_validation_subphase_id = result.get(
+            "subphase_id"
+        )
+        self.vulcan_operational_validation_modified_files = [
+            str(path) for path in (result.get("modified_files") or [])
+        ]
+        self.vulcan_operational_validations_executed = [
+            str(item) for item in (result.get("validations_executed") or [])
+        ]
+        self.vulcan_operational_tests_executed = [
+            str(item) for item in (result.get("tests_executed") or [])
+        ]
+        self.vulcan_operational_blocking_conditions = [
+            str(item) for item in (result.get("blocking_conditions") or [])
+        ]
+        self.vulcan_runtime_valid = bool(result.get("runtime_valid"))
+        self.vulcan_imports_valid = bool(result.get("imports_valid"))
+        self.vulcan_architecture_valid = bool(
+            result.get("architecture_valid")
+        )
+        self.vulcan_execution_consistent = bool(
+            result.get("execution_consistent")
+        )
+        self.vulcan_governance_compliant = bool(
+            result.get("governance_compliant")
+        )
+        self.vulcan_security_safe = bool(result.get("security_safe"))
+        self.vulcan_blocking_conditions_clear = bool(
+            result.get("blocking_conditions_clear")
+        )
+        self.vulcan_runtime_integrity_preserved = bool(
+            result.get("runtime_integrity_preserved")
+        )
+        self.vulcan_architecture_consistency_preserved = bool(
+            result.get("architecture_consistency_preserved")
+        )
+        self.vulcan_operational_governance_consistency_preserved = bool(
+            result.get("governance_consistency_preserved")
+        )
+        self.vulcan_operational_continuity_preserved = bool(
+            result.get("operational_continuity_preserved")
+        )
+        self.vulcan_technical_reporting_honest = bool(
+            result.get("technical_reporting_honest")
+        )
+        self.vulcan_continuation_authorized = bool(
+            result.get("continuation_authorized")
+        )
+        self.vulcan_continuation_status = result.get("continuation_status")
+        self.vulcan_operational_validation_report_payload = dict(
+            result.get("report_payload") or {}
+        )
+        self.vulcan_operational_validation_lifecycle = [
+            dict(entry)
+            for entry in (result.get("validation_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.vulcan_operational_validation_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.vulcan_operational_validation_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.vulcan_operational_validation_last_error = result.get("error")
+        self.vulcan_operational_validation_metadata = dict(
+            result.get("metadata") or {}
+        )
+
+        if self.vulcan_operational_validation_status == "validated":
+            self.vulcan_operational_validation_validated += 1
+        elif self.vulcan_operational_validation_status == "blocked":
+            self.vulcan_operational_validation_blocked += 1
+        else:
+            self.vulcan_operational_validation_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -8363,6 +8478,80 @@ class RuntimeStatus:
             "metadata": dict(self.vulcan_execution_handoff_metadata),
         }
 
+    def vulcan_operational_validation_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_vulcan_operational_validation_at": fmt(
+                self.last_vulcan_operational_validation_at
+            ),
+            "vulcan_operational_validation_iteration": (
+                self.vulcan_operational_validation_iteration
+            ),
+            "vulcan_operational_validation_status": (
+                self.vulcan_operational_validation_status
+            ),
+            "vulcan_operational_validation_validated": (
+                self.vulcan_operational_validation_validated
+            ),
+            "vulcan_operational_validation_blocked": (
+                self.vulcan_operational_validation_blocked
+            ),
+            "vulcan_operational_validation_errors": (
+                self.vulcan_operational_validation_errors
+            ),
+            "validation_id": self.vulcan_operational_validation_id,
+            "subphase_id": self.vulcan_operational_validation_subphase_id,
+            "modified_files": list(
+                self.vulcan_operational_validation_modified_files
+            ),
+            "validations_executed": list(
+                self.vulcan_operational_validations_executed
+            ),
+            "tests_executed": list(self.vulcan_operational_tests_executed),
+            "blocking_conditions": list(
+                self.vulcan_operational_blocking_conditions
+            ),
+            "runtime_valid": self.vulcan_runtime_valid,
+            "imports_valid": self.vulcan_imports_valid,
+            "architecture_valid": self.vulcan_architecture_valid,
+            "execution_consistent": self.vulcan_execution_consistent,
+            "governance_compliant": self.vulcan_governance_compliant,
+            "security_safe": self.vulcan_security_safe,
+            "blocking_conditions_clear": (
+                self.vulcan_blocking_conditions_clear
+            ),
+            "runtime_integrity_preserved": (
+                self.vulcan_runtime_integrity_preserved
+            ),
+            "architecture_consistency_preserved": (
+                self.vulcan_architecture_consistency_preserved
+            ),
+            "governance_consistency_preserved": (
+                self.vulcan_operational_governance_consistency_preserved
+            ),
+            "operational_continuity_preserved": (
+                self.vulcan_operational_continuity_preserved
+            ),
+            "technical_reporting_honest": (
+                self.vulcan_technical_reporting_honest
+            ),
+            "continuation_authorized": self.vulcan_continuation_authorized,
+            "continuation_status": self.vulcan_continuation_status,
+            "report_payload": dict(
+                self.vulcan_operational_validation_report_payload
+            ),
+            "validation_lifecycle": [
+                dict(entry)
+                for entry in self.vulcan_operational_validation_lifecycle
+            ],
+            "duration_ms": self.vulcan_operational_validation_duration_ms,
+            "reasons": list(self.vulcan_operational_validation_reasons),
+            "last_error": self.vulcan_operational_validation_last_error,
+            "metadata": dict(self.vulcan_operational_validation_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -8588,6 +8777,9 @@ class RuntimeStatus:
             ),
             "vulcan_execution_handoff": (
                 self.vulcan_execution_handoff_metrics()
+            ),
+            "vulcan_operational_validation": (
+                self.vulcan_operational_validation_metrics()
             ),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
