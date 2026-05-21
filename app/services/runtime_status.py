@@ -151,6 +151,37 @@ class RuntimeStatus:
         self.last_execution_duration_ms = 0
         self.execution_runtime_owner: str | None = None
         self.execution_reasons: list[str] = []
+        self.execution_safety_started_at: datetime | None = None
+        self.last_execution_safety_at: datetime | None = None
+        self.execution_safety_iteration = 0
+        self.execution_safety_enabled = False
+        self.execution_safety_status = "stopped"
+        self.execution_safety_interval_seconds = 0.0
+        self.execution_safety_last_duration_ms = 0
+        self.execution_safety_errors = 0
+        self.execution_safety_last_error: str | None = None
+        self.execution_safety_allows_execution = True
+        self.execution_safety_runtime_protected = True
+        self.execution_conflict_detected = False
+        self.execution_timeout_detected = False
+        self.execution_provider_failure_detected = False
+        self.execution_retry_allowed = True
+        self.execution_retry_attempts = 0
+        self.execution_max_retries = 0
+        self.execution_safety_active_executions = 0
+        self.execution_safety_max_concurrent_executions = 0
+        self.execution_safety_runtime_load: float | None = None
+        self.execution_safety_max_runtime_load = 0.0
+        self.execution_safety_memory_usage_mb: float | None = None
+        self.execution_safety_max_memory_mb = 0
+        self.execution_safety_active_provider_calls = 0
+        self.execution_safety_max_concurrent_provider_calls = 0
+        self.execution_safety_provider_status: str | None = None
+        self.execution_safety_execution_status: str | None = None
+        self.execution_safety_execution_id: str | None = None
+        self.execution_safety_task_id: str | None = None
+        self.execution_safety_checked_at: str | None = None
+        self.execution_safety_reasons: list[str] = []
         self.provider_bridge_started_at: datetime | None = None
         self.last_provider_bridge_at: datetime | None = None
         self.provider_bridge_iteration = 0
@@ -310,6 +341,7 @@ class RuntimeStatus:
         self.claiming_status = "stopped"
         self.pickup_safety_status = "stopped"
         self.execution_status = "stopped"
+        self.execution_safety_status = "stopped"
         self.provider_bridge_status = "stopped"
 
     def configure_safety_event_limit(self, limit: int) -> None:
@@ -709,6 +741,120 @@ class RuntimeStatus:
         self.execution_status = "error"
         self.execution_last_error = error or "unknown_execution_error"
 
+    def mark_execution_safety_started(
+        self,
+        enabled: bool,
+        interval_seconds: float,
+        max_retries: int = 0,
+        max_concurrent_executions: int = 0,
+        max_duration_seconds: int = 0,
+        max_runtime_load: float = 0.0,
+        max_memory_mb: int = 0,
+        max_concurrent_provider_calls: int = 0,
+    ) -> None:
+        self.execution_safety_started_at = datetime.now(timezone.utc)
+        self.execution_safety_enabled = bool(enabled)
+        self.execution_safety_status = "active" if enabled else "disabled"
+        self.execution_safety_interval_seconds = interval_seconds
+        self.execution_max_retries = max(0, int(max_retries or 0))
+        self.execution_safety_max_concurrent_executions = max(
+            0,
+            int(max_concurrent_executions or 0),
+        )
+        self.max_execution_duration_seconds = max(
+            0,
+            int(max_duration_seconds or 0),
+        )
+        self.execution_safety_max_runtime_load = max(
+            0.0,
+            float(max_runtime_load or 0.0),
+        )
+        self.execution_safety_max_memory_mb = max(0, int(max_memory_mb or 0))
+        self.execution_safety_max_concurrent_provider_calls = max(
+            0,
+            int(max_concurrent_provider_calls or 0),
+        )
+        self.execution_safety_last_error = None
+
+    def mark_execution_safety_completed(self, result: dict) -> None:
+        self.last_execution_safety_at = datetime.now(timezone.utc)
+        self.execution_safety_iteration += 1
+        self.execution_safety_status = result.get("status") or "unknown"
+        self.execution_safety_last_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.execution_safety_allows_execution = bool(
+            result.get("allows_execution")
+        )
+        self.execution_safety_runtime_protected = bool(
+            result.get("runtime_protected")
+        )
+        self.execution_conflict_detected = bool(result.get("conflict_detected"))
+        self.execution_timeout_detected = bool(result.get("timeout_detected"))
+        self.execution_provider_failure_detected = bool(
+            result.get("provider_failure_detected")
+        )
+        self.execution_retry_allowed = bool(result.get("retry_allowed"))
+        self.execution_retry_attempts = max(
+            0,
+            int(result.get("retry_attempts") or 0),
+        )
+        self.execution_max_retries = max(0, int(result.get("max_retries") or 0))
+        self.execution_safety_active_executions = max(
+            0,
+            int(result.get("active_executions") or 0),
+        )
+        self.execution_safety_max_concurrent_executions = max(
+            0,
+            int(result.get("max_concurrent_executions") or 0),
+        )
+        runtime_load = result.get("runtime_load")
+        self.execution_safety_runtime_load = (
+            float(runtime_load) if runtime_load is not None else None
+        )
+        self.execution_safety_max_runtime_load = max(
+            0.0,
+            float(result.get("max_runtime_load") or 0.0),
+        )
+        memory_usage = result.get("memory_usage_mb")
+        self.execution_safety_memory_usage_mb = (
+            float(memory_usage) if memory_usage is not None else None
+        )
+        self.execution_safety_max_memory_mb = max(
+            0,
+            int(result.get("max_memory_mb") or 0),
+        )
+        self.execution_safety_active_provider_calls = max(
+            0,
+            int(result.get("active_provider_calls") or 0),
+        )
+        self.execution_safety_max_concurrent_provider_calls = max(
+            0,
+            int(result.get("max_concurrent_provider_calls") or 0),
+        )
+        self.execution_safety_provider_status = result.get("provider_status")
+        self.execution_safety_execution_status = result.get("execution_status")
+        self.execution_safety_execution_id = result.get("execution_id")
+        self.execution_safety_task_id = result.get("task_id")
+        self.execution_safety_checked_at = result.get("checked_at")
+        self.execution_safety_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.execution_safety_last_error = result.get("error")
+        if self.execution_safety_status == "error":
+            self.execution_safety_errors += 1
+
+    def mark_execution_safety_error(self, error: str, duration_ms: int = 0) -> None:
+        self.last_execution_safety_at = datetime.now(timezone.utc)
+        self.execution_safety_iteration += 1
+        self.execution_safety_last_duration_ms = max(0, int(duration_ms or 0))
+        self.execution_safety_errors += 1
+        self.execution_safety_status = "error"
+        self.execution_safety_allows_execution = False
+        self.execution_safety_runtime_protected = True
+        self.execution_safety_last_error = error or "unknown_execution_safety_error"
+
     def mark_provider_bridge_started(
         self,
         enabled: bool,
@@ -1061,6 +1207,52 @@ class RuntimeStatus:
             "reasons": list(self.execution_reasons),
         }
 
+    def execution_safety_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "started_at": fmt(self.execution_safety_started_at),
+            "last_execution_safety_at": fmt(self.last_execution_safety_at),
+            "execution_safety_iteration": self.execution_safety_iteration,
+            "execution_safety_enabled": self.execution_safety_enabled,
+            "execution_safety_status": self.execution_safety_status,
+            "execution_safety_interval_seconds": (
+                self.execution_safety_interval_seconds
+            ),
+            "execution_safety_last_duration_ms": (
+                self.execution_safety_last_duration_ms
+            ),
+            "execution_safety_errors": self.execution_safety_errors,
+            "execution_safety_last_error": self.execution_safety_last_error,
+            "allows_execution": self.execution_safety_allows_execution,
+            "runtime_protected": self.execution_safety_runtime_protected,
+            "conflict_detected": self.execution_conflict_detected,
+            "timeout_detected": self.execution_timeout_detected,
+            "provider_failure_detected": self.execution_provider_failure_detected,
+            "retry_allowed": self.execution_retry_allowed,
+            "retry_attempts": self.execution_retry_attempts,
+            "max_retries": self.execution_max_retries,
+            "active_executions": self.execution_safety_active_executions,
+            "max_concurrent_executions": (
+                self.execution_safety_max_concurrent_executions
+            ),
+            "runtime_load": self.execution_safety_runtime_load,
+            "max_runtime_load": self.execution_safety_max_runtime_load,
+            "memory_usage_mb": self.execution_safety_memory_usage_mb,
+            "max_memory_mb": self.execution_safety_max_memory_mb,
+            "active_provider_calls": self.execution_safety_active_provider_calls,
+            "max_concurrent_provider_calls": (
+                self.execution_safety_max_concurrent_provider_calls
+            ),
+            "provider_status": self.execution_safety_provider_status,
+            "execution_status": self.execution_safety_execution_status,
+            "execution_id": self.execution_safety_execution_id,
+            "task_id": self.execution_safety_task_id,
+            "checked_at": self.execution_safety_checked_at,
+            "reasons": list(self.execution_safety_reasons),
+        }
+
     def provider_bridge_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -1123,6 +1315,7 @@ class RuntimeStatus:
             "claiming": self.claiming_metrics(),
             "pickup_safety": self.pickup_safety_metrics(),
             "execution": self.execution_metrics(),
+            "execution_safety": self.execution_safety_metrics(),
             "provider_bridge": self.provider_bridge_metrics(),
             "safety": self.safety_metrics(),
         }

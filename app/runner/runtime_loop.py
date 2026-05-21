@@ -18,6 +18,7 @@ from app.core.config import settings
 from app.db.engine import AsyncSessionLocal
 from app.models.task import Task
 from app.runner.pickup_safety import PickupSafety, PickupSafetyResult
+from app.runner.execution_safety import ExecutionSafety, ExecutionSafetyResult
 from app.runner.task_claiming import TaskClaiming, TaskClaimingResult
 from app.runner.task_discovery import TaskDiscovery, TaskDiscoveryResult
 from app.schemas.task import TaskStatus
@@ -41,9 +42,11 @@ class RuntimeLoop:
         task_discovery: Callable[[], Awaitable[TaskDiscoveryResult]] | None = None,
         task_claiming: Callable[[TaskDiscoveryResult], Awaitable[TaskClaimingResult]] | None = None,
         pickup_safety: Callable[[], Awaitable[PickupSafetyResult]] | None = None,
+        execution_safety: Callable[[], Awaitable[ExecutionSafetyResult]] | None = None,
         claiming_enabled: bool = settings.TASK_CLAIMING_ENABLED,
         pickup_safety_enabled: bool = settings.TASK_PICKUP_SAFETY_ENABLED,
         execution_enabled: bool = settings.TASK_EXECUTION_ENABLED,
+        execution_safety_enabled: bool = settings.TASK_EXECUTION_SAFETY_ENABLED,
         provider_bridge_enabled: bool = settings.PROVIDER_BRIDGE_ENABLED,
         degraded_error_threshold: int = settings.RUNTIME_LOOP_DEGRADED_ERROR_THRESHOLD,
         max_consecutive_errors: int = settings.RUNTIME_LOOP_MAX_CONSECUTIVE_ERRORS,
@@ -70,6 +73,8 @@ class RuntimeLoop:
         )
         self.pickup_safety = pickup_safety or PickupSafety().inspect
         self.execution_enabled = bool(execution_enabled)
+        self.execution_safety_enabled = bool(execution_safety_enabled)
+        self.execution_safety = execution_safety or ExecutionSafety().inspect
         self.provider_bridge_enabled = bool(provider_bridge_enabled)
         self.degraded_error_threshold = max(1, int(degraded_error_threshold))
         self.max_consecutive_errors = max(
@@ -125,6 +130,11 @@ class RuntimeLoop:
             else:
                 claiming_result = await self.task_claiming(discovery_result)
             self.status.mark_task_claiming_completed(claiming_result.to_dict())
+        if self.execution_safety_enabled:
+            execution_safety_result = await self.execution_safety()
+            self.status.mark_execution_safety_completed(
+                execution_safety_result.to_dict()
+            )
         if (
             tasks_detected > 0
             and tasks_detected != self._last_logged_tasks_detected
@@ -193,6 +203,16 @@ class RuntimeLoop:
             max_memory_mb=settings.TASK_EXECUTION_MAX_MEMORY_MB,
             runtime_owner=f"{settings.RUNNER_ID}:{settings.RUNTIME_ID}",
         )
+        self.status.mark_execution_safety_started(
+            enabled=self.execution_safety_enabled,
+            interval_seconds=self.interval_seconds,
+            max_retries=settings.TASK_EXECUTION_SAFETY_MAX_RETRIES,
+            max_concurrent_executions=settings.TASK_EXECUTION_MAX_CONCURRENT_EXECUTIONS,
+            max_duration_seconds=settings.TASK_EXECUTION_MAX_DURATION_SECONDS,
+            max_runtime_load=settings.TASK_EXECUTION_MAX_RUNTIME_LOAD,
+            max_memory_mb=settings.TASK_EXECUTION_MAX_MEMORY_MB,
+            max_concurrent_provider_calls=settings.PROVIDER_BRIDGE_MAX_CONCURRENT_CALLS,
+        )
         self.status.mark_provider_bridge_started(
             enabled=self.provider_bridge_enabled,
             interval_seconds=self.interval_seconds,
@@ -219,6 +239,10 @@ class RuntimeLoop:
         logger.info(
             "runtime_loop: execution foundation %s",
             "enabled" if self.execution_enabled else "disabled",
+        )
+        logger.info(
+            "runtime_loop: execution safety %s",
+            "enabled" if self.execution_safety_enabled else "disabled",
         )
         logger.info(
             "runtime_loop: provider bridge %s",
@@ -251,6 +275,8 @@ class RuntimeLoop:
                         self.status.mark_task_claiming_error(str(exc), poll_duration_ms)
                     if self.execution_enabled:
                         self.status.mark_task_execution_error(str(exc), poll_duration_ms)
+                    if self.execution_safety_enabled:
+                        self.status.mark_execution_safety_error(str(exc), poll_duration_ms)
                     if self.provider_bridge_enabled:
                         self.status.mark_provider_bridge_error(str(exc), poll_duration_ms)
                     self.status.mark_polling_error(str(exc), poll_duration_ms)
