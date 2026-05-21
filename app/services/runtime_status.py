@@ -665,6 +665,40 @@ class RuntimeStatus:
         self.approval_gate_reasons: list[str] = []
         self.approval_gate_last_error: str | None = None
         self.approval_gate_metadata: dict = {}
+        self.last_execution_blocking_at: datetime | None = None
+        self.execution_blocking_iteration = 0
+        self.execution_blocking_status = "stopped"
+        self.execution_blocks_active = 0
+        self.execution_blocks_invalid = 0
+        self.execution_blocking_errors = 0
+        self.last_execution_block_id: str | None = None
+        self.execution_block_execution_id: str | None = None
+        self.execution_block_task_id: str | None = None
+        self.execution_block_type: str | None = None
+        self.execution_block_status: str | None = None
+        self.execution_block_classification: str | None = None
+        self.execution_block_reason: str | None = None
+        self.execution_block_risk_level: str | None = None
+        self.execution_block_escalation_status: str | None = None
+        self.execution_block_continuation_status: str | None = None
+        self.execution_block_execution_frozen = False
+        self.execution_block_continuation_blocked = False
+        self.execution_block_context_preserved = False
+        self.execution_block_governance_protected = False
+        self.execution_block_security_authority_required = False
+        self.execution_block_human_authority_required = False
+        self.execution_block_modified_files: list[str] = []
+        self.execution_block_runtime_logs: list[dict] = []
+        self.execution_block_audit_history: list[dict] = []
+        self.execution_block_risk_history: list[str] = []
+        self.execution_block_runtime_state: dict = {}
+        self.execution_block_provider_context: dict = {}
+        self.execution_block_execution_context: dict = {}
+        self.execution_block_lifecycle: list[dict] = []
+        self.execution_block_duration_ms = 0
+        self.execution_block_reasons: list[str] = []
+        self.execution_block_last_error: str | None = None
+        self.execution_block_metadata: dict = {}
         self.response_ingestion_started_at: datetime | None = None
         self.last_response_ingestion_at: datetime | None = None
         self.response_ingestion_iteration = 0
@@ -2747,6 +2781,87 @@ class RuntimeStatus:
         else:
             self.approval_gate_errors += 1
 
+    def mark_execution_blocking_result(self, result: dict) -> None:
+        self.last_execution_blocking_at = datetime.now(timezone.utc)
+        self.execution_blocking_iteration += 1
+        self.execution_blocking_status = result.get("status") or "unknown"
+        self.last_execution_block_id = result.get("block_id")
+        self.execution_block_execution_id = result.get("execution_id")
+        self.execution_block_task_id = result.get("task_id")
+        self.execution_block_type = result.get("block_type")
+        self.execution_block_status = result.get("block_status")
+        self.execution_block_classification = result.get("block_classification")
+        self.execution_block_reason = result.get("block_reason")
+        self.execution_block_risk_level = result.get("risk_level")
+        self.execution_block_escalation_status = result.get("escalation_status")
+        self.execution_block_continuation_status = result.get(
+            "continuation_status"
+        )
+        self.execution_block_execution_frozen = bool(
+            result.get("execution_frozen")
+        )
+        self.execution_block_continuation_blocked = bool(
+            result.get("continuation_blocked")
+        )
+        self.execution_block_context_preserved = bool(
+            result.get("context_preserved")
+        )
+        self.execution_block_governance_protected = bool(
+            result.get("governance_protected")
+        )
+        self.execution_block_security_authority_required = bool(
+            result.get("security_authority_required")
+        )
+        self.execution_block_human_authority_required = bool(
+            result.get("human_authority_required")
+        )
+        self.execution_block_modified_files = [
+            str(path) for path in (result.get("modified_files") or [])
+        ]
+        self.execution_block_runtime_logs = [
+            dict(entry)
+            for entry in (result.get("runtime_logs") or [])
+            if isinstance(entry, dict)
+        ]
+        self.execution_block_audit_history = [
+            dict(entry)
+            for entry in (result.get("audit_history") or [])
+            if isinstance(entry, dict)
+        ]
+        self.execution_block_risk_history = [
+            str(risk) for risk in (result.get("risk_history") or [])
+        ]
+        self.execution_block_runtime_state = dict(
+            result.get("runtime_state") or {}
+        )
+        self.execution_block_provider_context = dict(
+            result.get("provider_context") or {}
+        )
+        self.execution_block_execution_context = dict(
+            result.get("execution_context") or {}
+        )
+        self.execution_block_lifecycle = [
+            dict(entry)
+            for entry in (result.get("blocking_lifecycle") or [])
+            if isinstance(entry, dict)
+        ]
+        self.execution_block_duration_ms = max(
+            0,
+            int(result.get("duration_ms") or 0),
+        )
+        self.execution_block_reasons = [
+            str(reason) for reason in (result.get("reasons") or [])
+        ]
+        self.execution_block_last_error = result.get("error")
+        self.execution_block_metadata = dict(result.get("metadata") or {})
+
+        if self.execution_blocking_status == "active":
+            self.execution_blocks_active += 1
+        elif self.execution_blocking_status == "blocked":
+            self.execution_blocks_invalid += 1
+        else:
+            self.execution_blocking_errors += 1
+
     def mark_response_ingestion_started(
         self,
         enabled: bool,
@@ -4094,6 +4209,59 @@ class RuntimeStatus:
             "metadata": dict(self.approval_gate_metadata),
         }
 
+    def execution_blocking_metrics(self) -> dict:
+        def fmt(value: datetime | None):
+            return value.isoformat() if value else None
+
+        return {
+            "last_execution_blocking_at": fmt(
+                self.last_execution_blocking_at
+            ),
+            "execution_blocking_iteration": self.execution_blocking_iteration,
+            "execution_blocking_status": self.execution_blocking_status,
+            "execution_blocks_active": self.execution_blocks_active,
+            "execution_blocks_invalid": self.execution_blocks_invalid,
+            "execution_blocking_errors": self.execution_blocking_errors,
+            "block_id": self.last_execution_block_id,
+            "execution_id": self.execution_block_execution_id,
+            "task_id": self.execution_block_task_id,
+            "block_type": self.execution_block_type,
+            "block_status": self.execution_block_status,
+            "block_classification": self.execution_block_classification,
+            "block_reason": self.execution_block_reason,
+            "risk_level": self.execution_block_risk_level,
+            "escalation_status": self.execution_block_escalation_status,
+            "continuation_status": self.execution_block_continuation_status,
+            "execution_frozen": self.execution_block_execution_frozen,
+            "continuation_blocked": self.execution_block_continuation_blocked,
+            "context_preserved": self.execution_block_context_preserved,
+            "governance_protected": self.execution_block_governance_protected,
+            "security_authority_required": (
+                self.execution_block_security_authority_required
+            ),
+            "human_authority_required": (
+                self.execution_block_human_authority_required
+            ),
+            "modified_files": list(self.execution_block_modified_files),
+            "runtime_logs": [
+                dict(entry) for entry in self.execution_block_runtime_logs
+            ],
+            "audit_history": [
+                dict(entry) for entry in self.execution_block_audit_history
+            ],
+            "risk_history": list(self.execution_block_risk_history),
+            "runtime_state": dict(self.execution_block_runtime_state),
+            "provider_context": dict(self.execution_block_provider_context),
+            "execution_context": dict(self.execution_block_execution_context),
+            "blocking_lifecycle": [
+                dict(entry) for entry in self.execution_block_lifecycle
+            ],
+            "duration_ms": self.execution_block_duration_ms,
+            "reasons": list(self.execution_block_reasons),
+            "last_error": self.execution_block_last_error,
+            "metadata": dict(self.execution_block_metadata),
+        }
+
     def response_ingestion_metrics(self) -> dict:
         def fmt(value: datetime | None):
             return value.isoformat() if value else None
@@ -4294,6 +4462,7 @@ class RuntimeStatus:
             "audit_request": self.audit_request_metrics(),
             "audit_response": self.audit_response_metrics(),
             "approval_gate": self.approval_gate_metrics(),
+            "execution_blocking": self.execution_blocking_metrics(),
             "response_ingestion": self.response_ingestion_metrics(),
             "response_validation": self.response_validation_metrics(),
             "response_safety": self.response_safety_metrics(),
