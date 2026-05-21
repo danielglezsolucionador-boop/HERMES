@@ -32,11 +32,20 @@ class RuntimeLoop:
         min_interval_seconds: float = settings.RUNTIME_LOOP_MIN_INTERVAL_SECONDS,
         heartbeat_log_every: int = HEARTBEAT_LOG_EVERY,
         pending_task_counter: Callable[[], Awaitable[int]] | None = None,
+        degraded_error_threshold: int = settings.RUNTIME_LOOP_DEGRADED_ERROR_THRESHOLD,
+        max_consecutive_errors: int = settings.RUNTIME_LOOP_MAX_CONSECUTIVE_ERRORS,
+        safety_event_limit: int = settings.RUNTIME_LOOP_SAFETY_EVENT_LIMIT,
     ) -> None:
         self.status = status
         self.interval_seconds = max(float(interval_seconds), float(min_interval_seconds))
         self.heartbeat_log_every = max(1, int(heartbeat_log_every))
         self.pending_task_counter = pending_task_counter or self._count_pending_tasks
+        self.degraded_error_threshold = max(1, int(degraded_error_threshold))
+        self.max_consecutive_errors = max(
+            self.degraded_error_threshold,
+            int(max_consecutive_errors),
+        )
+        self.safety_event_limit = max(1, int(safety_event_limit))
         self._stop_requested = False
         self._paused = False
         self._last_logged_tasks_detected: int | None = None
@@ -85,6 +94,7 @@ class RuntimeLoop:
 
     async def run(self) -> None:
         self._stop_requested = False
+        self.status.configure_safety_event_limit(self.safety_event_limit)
         self.status.mark_runtime_loop_started(self.interval_seconds)
         self.status.mark_polling_started(self.interval_seconds)
         logger.info(
@@ -99,6 +109,7 @@ class RuntimeLoop:
                 cycle_started = time.perf_counter()
                 try:
                     state = await self._cycle()
+                    self.status.mark_runtime_loop_cycle_success()
                 except asyncio.CancelledError:
                     stop_reason = "cancelled"
                     logger.info("runtime_loop: cancelled")
@@ -109,7 +120,24 @@ class RuntimeLoop:
                         (time.perf_counter() - cycle_started) * 1000
                     )
                     self.status.mark_polling_error(str(exc), poll_duration_ms)
+                    safety = self.status.mark_runtime_loop_error(
+                        str(exc),
+                        degraded_threshold=self.degraded_error_threshold,
+                        max_consecutive_errors=self.max_consecutive_errors,
+                    )
                     logger.error("runtime_loop: cycle error survived error=%s", exc)
+                    if safety["degraded_started"]:
+                        logger.warning(
+                            "runtime_loop: degraded consecutive_errors=%s",
+                            self.status.consecutive_errors,
+                        )
+                    if safety["should_stop"]:
+                        self.request_stop(self.status.safety_stop_reason or "unsafe_runtime")
+                        logger.critical(
+                            "runtime_loop: safety stop triggered reason=%s consecutive_errors=%s",
+                            self.status.safety_stop_reason,
+                            self.status.consecutive_errors,
+                        )
 
                 duration_ms = int((time.perf_counter() - cycle_started) * 1000)
                 self.status.mark_runtime_loop_heartbeat(
@@ -132,6 +160,8 @@ class RuntimeLoop:
                         self.status.polling_last_duration_ms,
                     )
 
+                if self._stop_requested:
+                    break
                 await asyncio.sleep(self.interval_seconds)
         finally:
             if self._stop_requested:

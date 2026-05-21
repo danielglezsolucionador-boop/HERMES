@@ -50,6 +50,12 @@ class RuntimeStatus:
         self.polling_last_duration_ms = 0
         self.polling_errors = 0
         self.polling_last_error: str | None = None
+        self.runtime_safe = True
+        self.consecutive_errors = 0
+        self.degraded_state = False
+        self.safety_stop_reason: str | None = None
+        self.safety_events: list[dict] = []
+        self.safety_event_limit = 20
 
     def mark_started(self) -> None:
         self.runner_started_at = datetime.now(timezone.utc)
@@ -133,6 +139,11 @@ class RuntimeStatus:
         self.runtime_loop_stop_requested = False
         self.runtime_loop_stop_reason = None
         self.runtime_loop_interval_seconds = interval_seconds
+        self.runtime_safe = True
+        self.consecutive_errors = 0
+        self.degraded_state = False
+        self.safety_stop_reason = None
+        self.safety_events = []
 
     def mark_runtime_loop_heartbeat(
         self,
@@ -161,6 +172,69 @@ class RuntimeStatus:
         self.runtime_loop_stop_requested = True
         self.runtime_loop_stop_reason = reason
         self.polling_status = "stopped"
+
+    def configure_safety_event_limit(self, limit: int) -> None:
+        self.safety_event_limit = max(1, int(limit or 1))
+        self.safety_events = self.safety_events[-self.safety_event_limit :]
+
+    def record_safety_event(
+        self,
+        event: str,
+        severity: str = "info",
+        detail: str | None = None,
+    ) -> None:
+        payload = {
+            "at": datetime.now(timezone.utc).isoformat(),
+            "event": event,
+            "severity": severity,
+            "detail": detail,
+            "consecutive_errors": self.consecutive_errors,
+        }
+        self.safety_events.append(payload)
+        self.safety_events = self.safety_events[-self.safety_event_limit :]
+
+    def mark_runtime_loop_cycle_success(self) -> None:
+        if self.consecutive_errors:
+            self.record_safety_event(
+                "runtime_recovered",
+                severity="info",
+                detail="cycle_completed_after_error",
+            )
+        self.consecutive_errors = 0
+        if self.runtime_safe:
+            self.degraded_state = False
+
+    def mark_runtime_loop_error(
+        self,
+        error: str,
+        degraded_threshold: int,
+        max_consecutive_errors: int,
+    ) -> dict:
+        self.consecutive_errors += 1
+        detail = error or "unknown_runtime_loop_error"
+        degraded_started = False
+        should_stop = False
+        if self.consecutive_errors >= degraded_threshold and not self.degraded_state:
+            self.degraded_state = True
+            degraded_started = True
+            self.record_safety_event(
+                "runtime_degraded",
+                severity="warning",
+                detail=detail,
+            )
+        if self.consecutive_errors >= max_consecutive_errors:
+            self.runtime_safe = False
+            self.safety_stop_reason = "max_consecutive_errors"
+            should_stop = True
+            self.record_safety_event(
+                "runtime_safety_stop",
+                severity="critical",
+                detail=detail,
+            )
+        return {
+            "degraded_started": degraded_started,
+            "should_stop": should_stop,
+        }
 
     def mark_polling_started(self, interval_seconds: float) -> None:
         self.polling_started_at = datetime.now(timezone.utc)
@@ -244,6 +318,10 @@ class RuntimeStatus:
     def runtime_loop_health_status(self) -> str:
         if not self.runtime_loop_alive:
             return "stopped"
+        if not self.runtime_safe:
+            return "failed"
+        if self.degraded_state:
+            return "degraded"
         if self.runtime_loop_state == "paused":
             return "paused"
         if self.runtime_loop_last_heartbeat_at is None:
@@ -271,6 +349,15 @@ class RuntimeStatus:
             "interval_seconds": self.runtime_loop_interval_seconds,
             "stop_requested": self.runtime_loop_stop_requested,
             "stop_reason": self.runtime_loop_stop_reason,
+        }
+
+    def safety_metrics(self) -> dict:
+        return {
+            "runtime_safe": self.runtime_safe,
+            "consecutive_errors": self.consecutive_errors,
+            "degraded_state": self.degraded_state,
+            "stop_reason": self.safety_stop_reason,
+            "safety_events": list(self.safety_events),
         }
 
     def polling_metrics(self) -> dict:
@@ -307,6 +394,7 @@ class RuntimeStatus:
             "total_failed": self.total_failed,
             "runtime_loop": self.runtime_loop_metrics(),
             "polling": self.polling_metrics(),
+            "safety": self.safety_metrics(),
         }
         data.update(self.ai_metrics())
         data.update(self.telegram_metrics())

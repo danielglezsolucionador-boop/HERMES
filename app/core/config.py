@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     # Runtime loop
     RUNTIME_LOOP_INTERVAL_SECONDS: float = 5.0
     RUNTIME_LOOP_MIN_INTERVAL_SECONDS: float = 0.5
+    RUNTIME_LOOP_DEGRADED_ERROR_THRESHOLD: int = 3
+    RUNTIME_LOOP_MAX_CONSECUTIVE_ERRORS: int = 5
+    RUNTIME_LOOP_SAFETY_EVENT_LIMIT: int = 20
 
     @field_validator('PORT')
     @classmethod

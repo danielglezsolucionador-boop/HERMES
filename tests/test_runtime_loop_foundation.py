@@ -25,11 +25,15 @@ async def test_runtime_loop_heartbeat_pause_resume_and_stop():
     await asyncio.sleep(0.04)
 
     running = status.runtime_loop_metrics()
+    safety = status.safety_metrics()
     assert running["alive"] is True
     assert running["status"] == "healthy"
     assert running["state"] == "active"
     assert running["iteration"] > 0
     assert running["last_heartbeat_at"] is not None
+    assert safety["runtime_safe"] is True
+    assert safety["consecutive_errors"] == 0
+    assert safety["degraded_state"] is False
 
     loop.pause()
     await asyncio.sleep(0.02)
@@ -161,3 +165,56 @@ async def test_runtime_loop_polling_error_is_contained():
     assert polling["polling_iteration"] > 1
     assert polling["tasks_detected"] == 0
     assert polling["polling_errors"] == 1
+
+
+@pytest.mark.asyncio
+async def test_runtime_loop_safety_stops_after_consecutive_errors():
+    async def always_fails() -> int:
+        raise RuntimeError("persistent polling failure")
+
+    status = RuntimeStatus()
+    loop = RuntimeLoop(
+        status=status,
+        interval_seconds=0.01,
+        min_interval_seconds=0.01,
+        heartbeat_log_every=1000,
+        pending_task_counter=always_fails,
+        degraded_error_threshold=2,
+        max_consecutive_errors=3,
+        safety_event_limit=5,
+    )
+
+    task = asyncio.create_task(loop.run())
+    await asyncio.wait_for(task, timeout=1)
+
+    safety = status.safety_metrics()
+    runtime = status.runtime_loop_metrics()
+    assert safety["runtime_safe"] is False
+    assert safety["consecutive_errors"] == 3
+    assert safety["degraded_state"] is True
+    assert safety["stop_reason"] == "max_consecutive_errors"
+    assert runtime["state"] == "stopped"
+    assert runtime["status"] == "stopped"
+    assert any(event["event"] == "runtime_degraded" for event in safety["safety_events"])
+    assert any(event["event"] == "runtime_safety_stop" for event in safety["safety_events"])
+
+
+@pytest.mark.asyncio
+async def test_runtime_loop_enforces_minimum_sleep_interval():
+    status = RuntimeStatus()
+    loop = RuntimeLoop(
+        status=status,
+        interval_seconds=0,
+        min_interval_seconds=0.02,
+        heartbeat_log_every=1000,
+        pending_task_counter=no_pending_tasks,
+    )
+
+    task = asyncio.create_task(loop.run())
+    await asyncio.sleep(0.055)
+    loop.request_stop("test_stop")
+    await asyncio.wait_for(task, timeout=1)
+
+    metrics = status.runtime_loop_metrics()
+    assert metrics["interval_seconds"] == 0.02
+    assert metrics["iteration"] <= 5
