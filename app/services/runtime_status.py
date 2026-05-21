@@ -176,6 +176,11 @@ class RuntimeStatus:
         self.last_execution_session_result: str | None = None
         self.last_execution_session_error_detail: str | None = None
         self.last_execution_session_audit: str | None = None
+        self.last_execution_session_previous_state: str | None = None
+        self.last_execution_session_transition: str | None = None
+        self.execution_session_transition_allowed = True
+        self.execution_session_blocking_detected = False
+        self.execution_session_blocking_reasons: list[str] = []
         self.execution_session_snapshot: dict | None = None
         self.execution_session_reasons: list[str] = []
         self.execution_safety_started_at: datetime | None = None
@@ -1113,6 +1118,17 @@ class RuntimeStatus:
         self.last_execution_session_result = result.get("last_result")
         self.last_execution_session_error_detail = result.get("last_error")
         self.last_execution_session_audit = result.get("last_audit")
+        self.last_execution_session_previous_state = result.get("previous_state")
+        self.last_execution_session_transition = result.get("state_transition")
+        self.execution_session_transition_allowed = bool(
+            result.get("state_transition_allowed", True)
+        )
+        self.execution_session_blocking_detected = bool(
+            result.get("blocking_detected")
+        )
+        self.execution_session_blocking_reasons = [
+            str(reason) for reason in (result.get("blocking_reasons") or [])
+        ]
         session = result.get("session")
         self.execution_session_snapshot = (
             dict(session) if isinstance(session, dict) else None
@@ -1136,6 +1152,8 @@ class RuntimeStatus:
         self.execution_session_status = "error"
         self.execution_session_state = "error"
         self.execution_session_runtime_protected = True
+        self.execution_session_transition_allowed = False
+        self.execution_session_blocking_detected = True
         self.execution_session_last_error = (
             error or "unknown_execution_session_error"
         )
@@ -2556,6 +2574,13 @@ class RuntimeStatus:
             "last_result": self.last_execution_session_result,
             "last_error": self.last_execution_session_error_detail,
             "last_audit": self.last_execution_session_audit,
+            "previous_state": self.last_execution_session_previous_state,
+            "state_transition": self.last_execution_session_transition,
+            "state_transition_allowed": (
+                self.execution_session_transition_allowed
+            ),
+            "blocking_detected": self.execution_session_blocking_detected,
+            "blocking_reasons": list(self.execution_session_blocking_reasons),
             "session": self.execution_session_snapshot,
             "reasons": list(self.execution_session_reasons),
         }

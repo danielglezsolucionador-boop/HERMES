@@ -17,19 +17,39 @@ from uuid import uuid4
 
 from app.core.config import settings
 from app.models.task import Task
+from app.runner.execution_state_control import (
+    EXECUTION_STATE_BLOCKED,
+    EXECUTION_STATE_COMPLETED,
+    EXECUTION_STATE_CREATED,
+    EXECUTION_STATE_FAILED,
+    EXECUTION_STATE_INITIALIZING,
+    EXECUTION_STATE_RETRY_PENDING,
+    EXECUTION_STATE_RUNNING,
+    EXECUTION_STATE_WAITING_APPROVAL,
+    EXECUTION_STATE_WAITING_AUDIT,
+    ExecutionStateController,
+    ExecutionStateTransitionResult,
+)
 
 logger = logging.getLogger(__name__)
 
-SESSION_STATE_CREATED = "created"
-SESSION_STATE_RUNNING = "running"
-SESSION_STATE_WAITING = "waiting"
-SESSION_STATE_BLOCKED = "blocked"
-SESSION_STATE_FAILED = "failed"
-SESSION_STATE_COMPLETED = "completed"
+SESSION_STATE_CREATED = EXECUTION_STATE_CREATED
+SESSION_STATE_INITIALIZING = EXECUTION_STATE_INITIALIZING
+SESSION_STATE_RUNNING = EXECUTION_STATE_RUNNING
+SESSION_STATE_WAITING_APPROVAL = EXECUTION_STATE_WAITING_APPROVAL
+SESSION_STATE_WAITING_AUDIT = EXECUTION_STATE_WAITING_AUDIT
+SESSION_STATE_WAITING = EXECUTION_STATE_WAITING_AUDIT
+SESSION_STATE_RETRY_PENDING = EXECUTION_STATE_RETRY_PENDING
+SESSION_STATE_BLOCKED = EXECUTION_STATE_BLOCKED
+SESSION_STATE_FAILED = EXECUTION_STATE_FAILED
+SESSION_STATE_COMPLETED = EXECUTION_STATE_COMPLETED
 SESSION_OPEN_STATES = {
     SESSION_STATE_CREATED,
+    SESSION_STATE_INITIALIZING,
     SESSION_STATE_RUNNING,
-    SESSION_STATE_WAITING,
+    SESSION_STATE_WAITING_APPROVAL,
+    SESSION_STATE_WAITING_AUDIT,
+    SESSION_STATE_RETRY_PENDING,
     SESSION_STATE_BLOCKED,
 }
 SESSION_FINAL_STATES = {SESSION_STATE_FAILED, SESSION_STATE_COMPLETED}
@@ -76,6 +96,7 @@ class ExecutionSession:
     last_audit: str | None = None
     recovery_available: bool = True
     active: bool = True
+    state_history: tuple[dict[str, Any], ...] = field(default_factory=tuple)
     logs: tuple[ExecutionSessionLogEntry, ...] = field(default_factory=tuple)
 
     def to_dict(self) -> dict[str, Any]:
@@ -99,6 +120,7 @@ class ExecutionSession:
             "last_audit": self.last_audit,
             "recovery_available": self.recovery_available,
             "active": self.active,
+            "state_history": [dict(item) for item in self.state_history],
             "logs": [entry.to_dict() for entry in self.logs],
         }
 
@@ -127,6 +149,11 @@ class ExecutionSessionResult:
     )
     duration_ms: int = 0
     session: ExecutionSession | None = None
+    previous_state: str | None = None
+    state_transition: str | None = None
+    state_transition_allowed: bool = True
+    blocking_detected: bool = False
+    blocking_reasons: tuple[str, ...] = field(default_factory=tuple)
     reasons: tuple[str, ...] = field(default_factory=tuple)
     error: str | None = None
 
@@ -152,6 +179,11 @@ class ExecutionSessionResult:
             "checked_at": self.checked_at,
             "duration_ms": self.duration_ms,
             "session": self.session.to_dict() if self.session else None,
+            "previous_state": self.previous_state,
+            "state_transition": self.state_transition,
+            "state_transition_allowed": self.state_transition_allowed,
+            "blocking_detected": self.blocking_detected,
+            "blocking_reasons": list(self.blocking_reasons),
             "reasons": list(self.reasons),
             "error": self.error,
         }
@@ -167,6 +199,7 @@ class ExecutionSessionManager:
         self.runtime_owner = runtime_owner
         self.max_active_sessions = max(1, int(max_active_sessions or 1))
         self.max_log_entries = max(1, int(max_log_entries or 1))
+        self.state_controller = ExecutionStateController()
         self._sessions: dict[str, ExecutionSession] = {}
         self._active_session_id: str | None = None
 
@@ -224,6 +257,31 @@ class ExecutionSessionManager:
                 self._log_result(result)
                 return result
 
+            created_transition = self.state_controller.evaluate_transition(
+                SESSION_STATE_CREATED,
+                SESSION_STATE_INITIALIZING,
+            )
+            running_transition = self.state_controller.evaluate_transition(
+                SESSION_STATE_INITIALIZING,
+                SESSION_STATE_RUNNING,
+            )
+            if not created_transition.allowed or not running_transition.allowed:
+                transition = (
+                    created_transition
+                    if not created_transition.allowed
+                    else running_transition
+                )
+                result = self._result(
+                    status="rejected",
+                    success=False,
+                    session_state=transition.current_state or "blocked",
+                    reasons=list(transition.reasons),
+                    transition=transition,
+                    started=started,
+                )
+                self._log_result(result)
+                return result
+
             now = datetime.now(timezone.utc).isoformat()
             session = ExecutionSession(
                 session_id=str(uuid4()),
@@ -236,7 +294,21 @@ class ExecutionSessionManager:
                 audit_status=audit_status or "not_started",
                 started_at=now,
                 updated_at=now,
+                state_history=(
+                    created_transition.to_dict(),
+                    running_transition.to_dict(),
+                ),
                 logs=(
+                    ExecutionSessionLogEntry(
+                        event="state_transition",
+                        message="Execution state created.",
+                        metadata=created_transition.to_dict(),
+                    ),
+                    ExecutionSessionLogEntry(
+                        event="state_transition",
+                        message="Execution state running.",
+                        metadata=running_transition.to_dict(),
+                    ),
                     ExecutionSessionLogEntry(
                         event="session_started",
                         message="Execution session started.",
@@ -251,6 +323,7 @@ class ExecutionSessionManager:
                 success=True,
                 session_state=session.execution_status,
                 session=session,
+                transition=running_transition,
                 started=started,
             )
             self._log_result(result)
@@ -278,6 +351,9 @@ class ExecutionSessionManager:
         last_audit: str | None = None,
         context_updates: dict[str, Any] | None = None,
         state: str | None = None,
+        recovery_authorized: bool = False,
+        transition_reasons: list[str] | tuple[str, ...] | None = None,
+        transition_metadata: dict[str, Any] | None = None,
         log_message: str | None = None,
     ) -> ExecutionSessionResult:
         started = time.perf_counter()
@@ -296,40 +372,70 @@ class ExecutionSessionManager:
                 session=session,
             )
 
-        next_state = state or session.execution_status
-        if next_state not in SESSION_OPEN_STATES:
-            return self._rejected(
-                "invalid_execution_session_state",
-                session.execution_status,
-                started,
+        next_state = self.state_controller.normalize_state(
+            state or session.execution_status
+        )
+        transition = self.state_controller.evaluate_transition(
+            session.execution_status,
+            next_state,
+            recovery_authorized=recovery_authorized,
+            reasons=transition_reasons,
+            metadata=transition_metadata,
+        )
+        if not transition.allowed:
+            result = self._result(
+                status="rejected",
+                success=False,
+                session_state=session.execution_status,
                 session=session,
+                reasons=list(transition.reasons),
+                transition=transition,
+                started=started,
             )
+            self._log_result(result)
+            return result
 
         memory = dict(session.context_memory)
         memory.update(dict(context_updates or {}))
+        final_state = next_state in SESSION_FINAL_STATES
         updated = replace(
             session,
             execution_status=next_state,
             context_memory=memory,
             audit_status=audit_status or session.audit_status,
             updated_at=datetime.now(timezone.utc).isoformat(),
+            closed_at=(
+                datetime.now(timezone.utc).isoformat()
+                if final_state
+                else session.closed_at
+            ),
+            active=False if final_state else session.active,
+            recovery_available=False if next_state == SESSION_STATE_COMPLETED else True,
             last_checkpoint=checkpoint or session.last_checkpoint,
             last_file_modified=file_modified or session.last_file_modified,
             last_result=result or session.last_result,
             last_error=error or session.last_error,
             last_audit=last_audit or session.last_audit,
+            state_history=(
+                *session.state_history,
+                transition.to_dict(),
+            ),
             logs=self._append_log(
                 session,
                 "session_saved",
                 log_message or "Execution session progress saved.",
+                metadata=transition.to_dict(),
             ),
         )
         self._sessions[session_id] = updated
+        if final_state and self._active_session_id == session_id:
+            self._active_session_id = None
         return self._result(
             status="saved",
             success=True,
             session_state=updated.execution_status,
             session=updated,
+            transition=transition,
             started=started,
         )
 
@@ -348,15 +454,38 @@ class ExecutionSessionManager:
                 reasons=["recoverable_execution_session_not_found"],
                 started=started,
             )
+        transition = self.state_controller.evaluate_transition(
+            session.execution_status,
+            SESSION_STATE_RUNNING,
+            recovery_authorized=True,
+            reasons=["recovery_authorized"],
+        )
+        if not transition.allowed:
+            result = self._result(
+                status="rejected",
+                success=False,
+                session_state=session.execution_status,
+                session=session,
+                reasons=list(transition.reasons),
+                transition=transition,
+                started=started,
+            )
+            self._log_result(result)
+            return result
         recovered = replace(
             session,
             execution_status=SESSION_STATE_RUNNING,
             active=True,
             updated_at=datetime.now(timezone.utc).isoformat(),
+            state_history=(
+                *session.state_history,
+                transition.to_dict(),
+            ),
             logs=self._append_log(
                 session,
                 "session_recovered",
                 "Execution session recovered.",
+                metadata=transition.to_dict(),
             ),
         )
         self._sessions[recovered.session_id] = recovered
@@ -366,6 +495,7 @@ class ExecutionSessionManager:
             success=True,
             session_state=recovered.execution_status,
             session=recovered,
+            transition=transition,
             started=started,
         )
 
@@ -386,6 +516,23 @@ class ExecutionSessionManager:
             )
 
         state = SESSION_STATE_COMPLETED if completed else SESSION_STATE_FAILED
+        transition = self.state_controller.evaluate_transition(
+            session.execution_status,
+            state,
+            reasons=["session_close_requested"],
+        )
+        if not transition.allowed:
+            result = self._result(
+                status="rejected",
+                success=False,
+                session_state=session.execution_status,
+                session=session,
+                reasons=list(transition.reasons),
+                transition=transition,
+                started=started,
+            )
+            self._log_result(result)
+            return result
         closed = replace(
             session,
             execution_status=state,
@@ -395,10 +542,15 @@ class ExecutionSessionManager:
             closed_at=datetime.now(timezone.utc).isoformat(),
             last_result=result or session.last_result,
             last_error=error or session.last_error,
+            state_history=(
+                *session.state_history,
+                transition.to_dict(),
+            ),
             logs=self._append_log(
                 session,
                 "session_closed",
                 "Execution session closed.",
+                metadata=transition.to_dict(),
             ),
         )
         self._sessions[session_id] = closed
@@ -409,6 +561,7 @@ class ExecutionSessionManager:
             success=completed,
             session_state=closed.execution_status,
             session=closed,
+            transition=transition,
             started=started,
         )
 
@@ -534,6 +687,7 @@ class ExecutionSessionManager:
         session: ExecutionSession | None = None,
         reasons: list[str] | None = None,
         error: str | None = None,
+        transition: ExecutionStateTransitionResult | None = None,
         started: float | None = None,
     ) -> ExecutionSessionResult:
         active_sessions = 1 if self.active_session() else 0
@@ -561,6 +715,19 @@ class ExecutionSessionManager:
                 else 0
             ),
             session=session,
+            previous_state=transition.current_state if transition else None,
+            state_transition=transition.transition if transition else None,
+            state_transition_allowed=(
+                transition.allowed
+                if transition
+                else status not in {"rejected", "error"}
+            ),
+            blocking_detected=(
+                transition.blocking_detected if transition else False
+            ),
+            blocking_reasons=(
+                transition.blocking_reasons if transition else tuple()
+            ),
             reasons=tuple(reasons or []),
             error=error,
         )
